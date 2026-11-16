@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    if command -v udevadm >/dev/null 2>&1; then
+        udevadm control --reload-rules 2>/dev/null || true
+        udevadm trigger --action=change --subsystem-match=misc --sysname-match=uinput 2>/dev/null || true
+    fi
+    if command -v appstreamcli >/dev/null 2>&1; then
+        appstreamcli refresh-cache --force >/dev/null 2>&1 || true
+    fi
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor 2>/dev/null || true
+    fi
+fi
+
+exit 0

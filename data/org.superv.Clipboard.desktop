@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=SuperV
+GenericName=Clipboard History
+GenericName[de]=Zwischenablageverlauf
+Comment=Clipboard history on Super+V - by Sacid Sezgin
+Comment[de]=Zwischenablageverlauf mit Super+V - von Sacid Sezgin
+Exec=superv --show
+Icon=org.superv.Clipboard
+Terminal=false
+Categories=Utility;GTK;
+Keywords=clipboard;history;paste;copy;
+StartupNotify=false
+StartupWMClass=org.superv.Clipboard

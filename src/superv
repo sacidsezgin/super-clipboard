@@ -1,0 +1,2162 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+"""SuperV - a clipboard history panel in the style of the Windows 11 Win+V flyout.
+
+By Sacid Sezgin.
+
+One small background process watches the clipboard and keeps the last entries
+(text and images). Super+V opens a panel; picking an entry puts it back on the
+clipboard and pastes it into the window you were working in.
+"""
+
+import datetime
+import fcntl
+import hashlib
+import json
+import locale
+import os
+import re
+import shutil
+import struct
+import subprocess
+import sys
+import time
+
+# The watcher has to see clipboard changes made in *other* windows. On a GNOME
+# Wayland session only X11 (XWayland) clients are told about those, so X11 is
+# preferred and native Wayland is the fallback. Override with SUPERV_GDK_BACKEND.
+os.environ["GDK_BACKEND"] = os.environ.get("SUPERV_GDK_BACKEND", "x11,wayland")
+
+import warnings  # noqa: E402
+
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+import gi  # noqa: E402
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+gi.require_version("GdkPixbuf", "2.0")
+from gi.repository import Gdk, GdkPixbuf, Gio, GLib, Gtk, Pango  # noqa: E402
+
+try:
+    gi.require_version("GdkX11", "3.0")
+    from gi.repository import GdkX11  # noqa: E402
+except (ValueError, ImportError):
+    GdkX11 = None
+
+APP_ID = "org.superv.Clipboard"
+APP_NAME = "SuperV"
+VERSION = "1.2.0"
+AUTHOR = "Sacid Sezgin"
+TOGGLE_COMMAND = "/usr/bin/superv-toggle"
+
+DATA_DIR = os.path.join(GLib.get_user_data_dir(), "superv")
+IMAGE_DIR = os.path.join(DATA_DIR, "images")
+HISTORY_FILE = os.path.join(DATA_DIR, "history.json")
+CONFIG_DIR = os.path.join(GLib.get_user_config_dir(), "superv")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+HOTKEY_MARKER = os.path.join(CONFIG_DIR, "hotkey-installed")
+STATE_FILE = os.path.join(CONFIG_DIR, "state.json")
+
+DEFAULT_CONFIG = {
+    "max_items": 50,                   # unpinned entries kept
+    "persist": True,                   # keep history across logins
+    "paste_on_select": True,           # paste into the previous window
+    "paste_shortcut": "shift+insert",  # or "ctrl+v" / "ctrl+shift+v"
+    "position": "auto",                # "auto", "pointer" or "center"
+    "remember_position": True,         # reopen where the panel was dragged to (per monitor)
+    "expire_days": 30,                 # delete unpinned entries older than this; 0 = never
+    "paste_formatted": False,          # False: plain text by default, extra button pastes formatted
+    "max_html_chars": 300000,          # formatted copies larger than this are stored as plain text
+    "max_text_chars": 1000000,
+    "max_image_pixels": 40000000,
+}
+
+
+# ----------------------------------------------------------------- i18n ----
+
+STRINGS = {
+    "en": {
+        "title": "Clipboard",
+        "clear": "Clear all",
+        "search": "Type to search",
+        "empty": "Nothing here yet.\nCopy something and it will show up in this list.",
+        "no_match": "No entries match your search.",
+        "pin": "Pin",
+        "unpin": "Unpin",
+        "delete": "Delete",
+        "hint": "Enter: paste  ·  Space: preview  ·  Ctrl+1–9  ·  Del: remove",
+        "hint_preview": "Ctrl+Enter: paste  ·  Esc: back",
+        "fmt_with": "Paste with formatting", "fmt_without": "Paste without formatting",
+        "cat_rich": "formatted",
+        "preview_note": "Preview – text can be edited before pasting",
+        "back": "← Back", "paste_btn": "Paste", "reveal": "Show", "hide_secret": "Hide",
+        "truncated": "Very long text: only the beginning is shown, it cannot be edited here.",
+        "set_formatted": "Paste with formatting by default",
+        "set_formatted_note": "Off: entries are pasted as plain text; the button next to the pin pastes them with formatting. On: the other way round.",
+        "hint_copy_only": "Entry is copied on Enter – then paste with Ctrl+V",
+        "image": "Image",
+        "empty_tab": "No entries in this tab.",
+        "tab_all": "All", "tab_text": "Text", "tab_code": "Code", "tab_url": "URLs",
+        "tab_sensitive": "Sensitive", "tab_image": "Images",
+        "cat_code": "Code", "cat_url": "URL", "cat_sensitive": "Sensitive", "cat_image": "Image",
+        "t_now": "just now", "t_min": "%d min ago", "t_hour": "%d h ago",
+        "t_yesterday": "yesterday", "t_days": "%d days ago", "t_date": "%Y-%m-%d",
+        "settings": "Settings",
+        "set_max_items": "Entries kept in the history",
+        "set_expire": "Delete entries after (days)",
+        "set_expire_note": "0 = never delete. Pinned entries always stay.",
+        "set_remember": "Remember the panel position per monitor",
+        "set_reset_pos": "Forget saved positions",
+        "set_paste": "Paste right away when picking an entry",
+        "set_shortcut": "Shortcut used for pasting",
+        "set_persist": "Keep the history after logging out",
+        "save": "Save", "cancel": "Cancel",
+    },
+    "de": {
+        "title": "Zwischenablage",
+        "clear": "Alle löschen",
+        "search": "Tippen zum Suchen",
+        "empty": "Noch nichts vorhanden.\nKopiere etwas, dann erscheint es in dieser Liste.",
+        "no_match": "Kein Eintrag passt zur Suche.",
+        "pin": "Anheften",
+        "unpin": "Lösen",
+        "delete": "Löschen",
+        "hint": "Enter: einfügen  ·  Leertaste: Vorschau  ·  Strg+1–9  ·  Entf: löschen",
+        "hint_preview": "Strg+Enter: einfügen  ·  Esc: zurück",
+        "fmt_with": "Mit Formatierung einfügen", "fmt_without": "Ohne Formatierung einfügen",
+        "cat_rich": "formatiert",
+        "preview_note": "Vorschau – der Text lässt sich vor dem Einfügen ändern",
+        "back": "← Zurück", "paste_btn": "Einfügen", "reveal": "Anzeigen", "hide_secret": "Verbergen",
+        "truncated": "Sehr langer Text: nur der Anfang wird gezeigt, hier nicht bearbeitbar.",
+        "set_formatted": "Standardmäßig mit Formatierung einfügen",
+        "set_formatted_note": "Aus: Einträge werden als reiner Text eingefügt; der Knopf neben der Pinnnadel fügt mit Formatierung ein. An: umgekehrt.",
+        "hint_copy_only": "Enter kopiert den Eintrag – danach mit Strg+V einfügen",
+        "image": "Bild",
+        "empty_tab": "Keine Einträge in diesem Reiter.",
+        "tab_all": "Alle", "tab_text": "Text", "tab_code": "Code", "tab_url": "URLs",
+        "tab_sensitive": "Sensibel", "tab_image": "Bilder",
+        "cat_code": "Code", "cat_url": "URL", "cat_sensitive": "Sensibel", "cat_image": "Bild",
+        "t_now": "gerade eben", "t_min": "vor %d Min.", "t_hour": "vor %d Std.",
+        "t_yesterday": "gestern", "t_days": "vor %d Tagen", "t_date": "%d.%m.%Y",
+        "settings": "Einstellungen",
+        "set_max_items": "Einträge im Verlauf",
+        "set_expire": "Einträge löschen nach (Tagen)",
+        "set_expire_note": "0 = nie löschen. Angeheftete Einträge bleiben immer.",
+        "set_remember": "Fensterposition pro Monitor merken",
+        "set_reset_pos": "Gemerkte Positionen vergessen",
+        "set_paste": "Beim Auswählen sofort einfügen",
+        "set_shortcut": "Tastenkürzel zum Einfügen",
+        "set_persist": "Verlauf nach dem Abmelden behalten",
+        "save": "Speichern", "cancel": "Abbrechen",
+    },
+}
+
+
+def _pick_language():
+    for var in ("LC_ALL", "LC_MESSAGES", "LANGUAGE", "LANG"):
+        value = os.environ.get(var, "")
+        if value:
+            code = value.split(":")[0].split("_")[0].split(".")[0].lower()
+            return code if code in STRINGS else "en"
+    try:
+        code = (locale.getlocale()[0] or "en").split("_")[0].lower()
+    except (ValueError, TypeError):
+        code = "en"
+    return code if code in STRINGS else "en"
+
+
+_LANG = _pick_language()
+
+
+def _(key):
+    return STRINGS[_LANG].get(key, STRINGS["en"][key])
+
+
+def log(*parts):
+    print("superv:", *parts, file=sys.stderr, flush=True)
+
+
+# --------------------------------------------------------------- config ----
+
+def load_config():
+    cfg = dict(DEFAULT_CONFIG)
+    try:
+        with open(CONFIG_FILE, encoding="utf-8") as handle:
+            user = json.load(handle)
+        if isinstance(user, dict):
+            for key, default in DEFAULT_CONFIG.items():
+                if key in user and isinstance(user[key], type(default)):
+                    cfg[key] = user[key]
+    except FileNotFoundError:
+        try:
+            os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
+            with open(CONFIG_FILE, "w", encoding="utf-8") as handle:
+                json.dump(DEFAULT_CONFIG, handle, indent=2)
+                handle.write("\n")
+        except OSError as err:
+            log("could not write default config:", err)
+    except (OSError, ValueError) as err:
+        log("ignoring unreadable config:", err)
+    cfg["max_items"] = max(1, min(int(cfg["max_items"]), 500))
+    cfg["expire_days"] = max(0, min(int(cfg["expire_days"]), 3650))
+    return cfg
+
+
+def _write_json(path, data):
+    try:
+        os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
+        fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=2)
+            handle.write("\n")
+        os.replace(path + ".tmp", path)
+    except OSError as err:
+        log("could not write %s:" % path, err)
+
+
+def save_config(cfg):
+    _write_json(CONFIG_FILE, {key: cfg[key] for key in DEFAULT_CONFIG})
+
+
+def load_state():
+    """Things the program remembers by itself (panel position per monitor)."""
+    try:
+        with open(STATE_FILE, encoding="utf-8") as handle:
+            state = json.load(handle)
+    except (OSError, ValueError):
+        state = {}
+    if not isinstance(state, dict):
+        state = {}
+    if not isinstance(state.get("positions"), dict):
+        state["positions"] = {}
+    return state
+
+
+def save_state(state):
+    _write_json(STATE_FILE, state)
+
+
+# -------------------------------------------------------- classification ----
+# Every text entry lands in exactly one tab: sensitive > code > text.
+# All of this is pattern matching - it can miss things and it can be wrong.
+
+ANALYSE_CHARS = 20000
+
+_SECRET_BLOCKS = (
+    re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z)", re.S),
+    re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_\-]{20,}"
+               r"|sk-[A-Za-z0-9_\-]{20,}|xox[abprs]-[A-Za-z0-9\-]{10,}|AKIA[0-9A-Z]{16}"
+               r"|AIza[0-9A-Za-z_\-]{35})"),
+    re.compile(r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{4,}"),   # JWT
+)
+_SECRET_WORD = r"(?:pass(?:word|wort|wd|phrase)?|pwd|kennwort|secret|token|api[_-]?key|auth[_-]?key" \
+               r"|access[_-]?key|private[_-]?key)"
+# password: hunter2   /   DB_PASSWORD=hunter2   /   "apiKey": "abc123"
+_SECRET_ASSIGN = re.compile(r"(?i)" + _SECRET_WORD + r"[a-z0-9_]*[\"']?\s*(?:=>|[:=])\s*[\"']?"
+                            r"([^\s\"',;)]{4,})")
+# define('DB_PASSWORD', 'hunter2');   define('AUTH_KEY', '...');
+_SECRET_DEFINE = re.compile(r"(?i)[\"'][a-z0-9_]*(?:pass|secret|key|salt|token)[a-z0-9_]*[\"']\s*,"
+                            r"\s*[\"']([^\"']{4,})[\"']")
+_SECRET_URL = re.compile(r"\b[a-z][a-z0-9+.\-]*://[^\s/:@]+:([^\s/@]+)@")
+_IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,3})?\b")
+_CARD = re.compile(r"(?<![\d.,])[3-6]\d(?:[ -]?\d){11,17}(?![\d.,])")
+_NOT_A_SECRET = {"true", "false", "null", "none", "undefined", "string", "text", "password",
+                 "passwort", "required", "optional", "empty", "hidden", "bool", "boolean"}
+
+
+def _iban_ok(candidate):
+    iban = candidate.replace(" ", "")
+    if not 15 <= len(iban) <= 34:
+        return False
+    digits = "".join(str(int(ch, 36)) for ch in iban[4:] + iban[:4])
+    return int(digits) % 97 == 1
+
+
+def _luhn_ok(candidate):
+    digits = [int(ch) for ch in candidate if ch.isdigit()]
+    if not 13 <= len(digits) <= 19:
+        return False
+    total = 0
+    for index, digit in enumerate(reversed(digits)):
+        if index % 2:
+            digit = digit * 2 - 9 if digit > 4 else digit * 2
+        total += digit
+    return total % 10 == 0
+
+
+def _looks_like_password(token):
+    """A lone string that looks typed-as-a-password or like a random key.
+
+    "_", "-" and "." do not count as password symbols: names such as
+    Mobile_pos2, jm-adblock-v2 or Report_v2.docx are identifiers, not secrets.
+    """
+    if not 8 <= len(token) <= 72 or re.search(r"\s", token):
+        return False
+    if "://" in token or token.startswith(("/", "~", "./", "www.", "#", "@")):
+        return False
+    if re.fullmatch(r"[\w.+\-]+@[\w\-]+(?:\.[\w\-]+)+", token):      # e-mail address
+        return False
+    lower = sum(ch.islower() for ch in token)
+    upper = sum(ch.isupper() for ch in token)
+    digit = sum(ch.isdigit() for ch in token)
+    symbol = sum(not ch.isalnum() and ch not in "_-." for ch in token)
+    if lower and upper and digit and symbol:
+        return True
+    # Long random keys (base62 / base64): unlike names, they are dense in capitals
+    # and digits and keep switching between kinds of characters.
+    if len(token) < 24 or not (lower and upper and digit) or \
+            not re.fullmatch(r"[A-Za-z0-9_\-+/=]+", token):
+        return False
+    kinds = ["l" if ch.islower() else "u" if ch.isupper() else "d" if ch.isdigit() else "s"
+             for ch in token]
+    switches = sum(1 for left, right in zip(kinds, kinds[1:]) if left != right)
+    return (upper + digit) >= 0.4 * len(token) and switches >= 0.35 * (len(token) - 1)
+
+
+def find_secrets(text):
+    """Character ranges of the text that should not be shown in full."""
+    spans = []
+    for pattern in _SECRET_BLOCKS:
+        spans += [match.span() for match in pattern.finditer(text)]
+    for pattern in (_SECRET_ASSIGN, _SECRET_DEFINE):
+        for match in pattern.finditer(text):
+            value = match.group(1)
+            if value.lower() in _NOT_A_SECRET or value[0] in "$<({[" or "(" in value:
+                continue
+            spans.append(match.span(1))
+    spans += [match.span(1) for match in _SECRET_URL.finditer(text)]
+    spans += [match.span() for match in _IBAN.finditer(text) if _iban_ok(match.group())]
+    spans += [match.span() for match in _CARD.finditer(text) if _luhn_ok(match.group())]
+    stripped = text.strip()
+    if not spans and _looks_like_password(stripped):
+        start = text.index(stripped)
+        spans.append((start, start + len(stripped)))
+    merged = []
+    for start, end in sorted(spans):
+        if merged and start <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(end, merged[-1][1]))
+        else:
+            merged.append((start, end))
+    return tuple(merged)
+
+
+def mask(secret):
+    """hunter2secret -> hu••••••••et : enough to recognise it, not enough to read it."""
+    if "\n" in secret:
+        return "•" * 12
+    if len(secret) <= 5:
+        return "•" * len(secret)
+    keep = 2 if len(secret) < 16 else 4
+    return secret[:keep] + "•" * min(len(secret) - 2 * keep, 12) + secret[-keep:]
+
+
+def masked_text(text, spans):
+    parts, position = [], 0
+    for start, end in spans:
+        parts += [text[position:start], mask(text[start:end])]
+        position = end
+    parts.append(text[position:])
+    return "".join(parts)
+
+
+_SHELL_COMMANDS = {
+    "sudo", "apt", "apt-get", "dpkg", "snap", "flatpak", "git", "cd", "ls", "cp", "mv", "rm", "mkdir",
+    "chmod", "chown", "cat", "grep", "sed", "awk", "find", "tar", "unzip", "zip", "curl", "wget",
+    "ssh", "scp", "rsync", "docker", "kubectl", "npm", "npx", "yarn", "pnpm", "node", "pip", "pip3",
+    "python", "python3", "php", "composer", "wp", "mysql", "mariadb", "mysqldump", "mariadb-dump",
+    "systemctl", "journalctl", "service", "export", "echo", "make", "bash", "sh", "source", "kill",
+    "pkill", "killall", "ps", "df", "du", "ln", "touch", "nano", "vim", "gsettings", "dconf", "superv",
+}
+# Commands that are not also everyday words: "killall firefox" needs no option
+# flag to count as a command, "find the file" does.
+_SHELL_UNMISTAKABLE = {
+    "sudo", "apt", "apt-get", "dpkg", "flatpak", "killall", "pkill", "systemctl", "journalctl",
+    "chmod", "chown", "mkdir", "npm", "npx", "pnpm", "pip", "pip3", "wget", "curl", "ssh", "scp",
+    "rsync", "docker", "kubectl", "gsettings", "dconf", "mysqldump", "mariadb-dump", "composer",
+    "unzip", "grep", "sed", "awk", "superv",
+}
+_CODE_LINE = re.compile(r"""
+      ^\s*(?:def|class|function|import|from|const|let|var|return|if|elif|else|for|foreach|while
+            |switch|case|try|catch|public|private|protected|static|echo|print|namespace|use
+            |package|func|fn|struct|enum|interface|export|async|await
+            |SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b.*[({:;=\[*]
+    | [;{}]\s*$
+    | ^\s*[)}\]]+[;,]?\s*$
+    | =>|\w->\w|\w::\w|===?|!==?|&&|\|\||\+=|-=|<\?php|\?>
+    | </?[a-zA-Z][\w\-]*(?:\s[^<>]*)?/?>
+    | ^\s*(?://|/\*|\*/|<!--)
+    | ^\s*[\w$.\[\]'"]+\s*=\s*\S
+    | ^\s*[.\#]?[\w\-]+(?:\s*[,>+~ ]\s*[.\#]?[\w\-]+)*\s*\{
+    | ^\s*[\w\-]+\s*:\s*[^;]+;\s*$
+    | ^\s*@(?:media|import|font-face|keyframes|supports)\b
+    | ^\s*\$[A-Za-z_]\w*
+    | \w\([^)]*\)\s*[;{]?\s*$
+""", re.X)
+_OPTION_FLAG = re.compile(r"\s--?[A-Za-z][\w\-]*")
+
+
+def _shell_line(line):
+    words = line.strip().lstrip("$ ").split()
+    if not words or len(words) > 14 or line.rstrip().endswith((".", "!", "?")):
+        return False
+    if words[0] in _SHELL_UNMISTAKABLE and 2 <= len(words) <= 8:
+        return True
+    if words[0] in _SHELL_COMMANDS and len(words) > 1:
+        return words[0] == "sudo" or bool(_OPTION_FLAG.search(line)) or \
+            bool(re.search(r"[/|>&~=]|\.\w", " ".join(words[1:])))
+    return bool(_OPTION_FLAG.search(line)) and re.match(r"[\w./~\-]+$", words[0]) is not None
+
+
+def _prose_line(line):
+    words = line.split()
+    return len(words) >= 8 and sum(word.strip(".,;:!?()\"'").isalpha() for word in words) >= 0.8 * len(words)
+
+
+def looks_like_code(text):
+    stripped = text.strip()
+    if stripped.startswith(("#!", "<?php", "<?xml", "<!DOCTYPE", "<!doctype", "<html")):
+        return True
+    if stripped[:1] in "{[" and stripped[-1:] in "}]" and len(stripped) > 2:
+        try:
+            if isinstance(json.loads(stripped), (dict, list)):
+                return True
+        except ValueError:
+            pass
+    lines = [line for line in stripped.split("\n") if line.strip()][:200]
+    if not lines:
+        return False
+    if all(_shell_line(line) for line in lines[:12]):
+        return True
+    code_lines = sum(1 for line in lines if _CODE_LINE.search(line) and not _prose_line(line))
+    if len(lines) == 1:
+        return code_lines == 1
+    indented = sum(1 for line in lines if line.startswith(("  ", "\t")))
+    if len(lines) >= 3 and indented >= len(lines) / 2 and code_lines:
+        return True
+    return code_lines >= 2 and code_lines >= 0.3 * len(lines)
+
+
+_URL_LINE = re.compile(r"(?:(?:https?|s?ftp|file)://|www\.)\S+$", re.I)
+
+
+def looks_like_url(text):
+    """One web address, or a list with one address per line - and nothing else."""
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    return 0 < len(lines) <= 100 and all(_URL_LINE.match(line) for line in lines)
+
+
+def classify(text):
+    """-> ("sensitive" | "url" | "code" | "text", spans to mask)"""
+    sample = text[:ANALYSE_CHARS]
+    spans = find_secrets(sample)
+    if spans:
+        return "sensitive", spans
+    if looks_like_url(sample):
+        return "url", ()
+    return ("code" if looks_like_code(sample) else "text"), ()
+
+
+_RICH = re.compile(r"<(?:b|strong|i|em|u|s|a|h[1-6]|ul|ol|li|table|tr|td|th|img|font|blockquote|code|pre"
+                   r"|sup|sub|mark|br)\b|\s(?:style|class)\s*=", re.I)
+
+
+def decode_html(data):
+    """Clipboard text/html arrives as UTF-8 from some programs and UTF-16 from others."""
+    if not data:
+        return ""
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):
+        return data.decode("utf-16", "replace")
+    if b"\x00" in data[:400]:
+        return data.decode("utf-16-le", "replace")
+    return data.decode("utf-8", "replace")
+
+
+def has_formatting(html):
+    return bool(html) and bool(_RICH.search(html))
+
+
+def html_for_clipboard(html):
+    """Tell the receiving program the encoding; browsers and office suites need that."""
+    if "charset" not in html[:1500].lower():
+        html = '<meta http-equiv="content-type" content="text/html; charset=utf-8">' + html
+    return html.encode("utf-8", "replace")
+
+
+def relative_time(stamp, now=None):
+    if stamp <= 0:
+        return ""
+    now = now or time.time()
+    age = max(0, now - stamp)
+    if age < 60:
+        return _("t_now")
+    if age < 3600:
+        return _("t_min") % int(age // 60)
+    day = datetime.date.fromtimestamp(stamp)
+    days = (datetime.date.fromtimestamp(now) - day).days
+    if days == 0 or age < 6 * 3600:
+        return _("t_hour") % int(age // 3600)
+    if days == 1:
+        return _("t_yesterday")
+    if days < 7:
+        return _("t_days") % days
+    return day.strftime(_("t_date"))
+
+
+def monitor_key(monitor):
+    geo = monitor.get_geometry()
+    return "%s|%s|%dx%d+%d+%d" % (monitor.get_manufacturer() or "", monitor.get_model() or "",
+                                  geo.width, geo.height, geo.x, geo.y)
+
+
+# ---------------------------------------------------------------- store ----
+
+class Item:
+    __slots__ = ("id", "kind", "text", "pinned", "ts", "category", "spans", "html")
+
+    def __init__(self, item_id, kind, text="", pinned=False, ts=None, html=""):
+        self.html = html           # formatted version (text/html) if the copy had one
+        self.id = item_id
+        self.kind = kind          # "text" or "image"
+        self.text = text          # only for kind == "text"
+        self.pinned = pinned
+        self.ts = ts or time.time()
+        if kind == "text":
+            self.category, self.spans = classify(text)   # "text", "code", "url" or "sensitive"
+        else:
+            self.category, self.spans = "image", ()
+
+    @property
+    def display_text(self):
+        """What the list shows: the text with its sensitive parts masked."""
+        sample = self.text[:4000]
+        return masked_text(sample, [(a, min(b, len(sample))) for a, b in self.spans if a < len(sample)])
+
+    @property
+    def path(self):
+        return os.path.join(IMAGE_DIR, self.id + ".png")
+
+    def to_dict(self):
+        data = {"id": self.id, "kind": self.kind, "pinned": self.pinned, "ts": self.ts}
+        if self.kind == "text":
+            data["text"] = self.text
+            if self.html:
+                data["html"] = self.html
+        return data
+
+
+class Store:
+    """History, newest first. Pinned entries are never evicted."""
+
+    def __init__(self, cfg, on_change):
+        self.cfg = cfg
+        self.on_change = on_change
+        self.items = []
+        self._save_source = 0
+        os.makedirs(IMAGE_DIR, mode=0o700, exist_ok=True)
+        os.chmod(DATA_DIR, 0o700)
+        if cfg["persist"]:
+            self._load()
+        self._drop_orphan_images()
+
+    def _load(self):
+        try:
+            with open(HISTORY_FILE, encoding="utf-8") as handle:
+                raw = json.load(handle)
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError) as err:
+            log("history unreadable, starting empty:", err)
+            return
+        for entry in raw.get("items", []) if isinstance(raw, dict) else []:
+            try:
+                html = entry.get("html", "")
+                item = Item(str(entry["id"]), entry["kind"], entry.get("text", ""),
+                            bool(entry.get("pinned")), float(entry.get("ts", 0)),
+                            html if isinstance(html, str) else "")
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not item.id.isalnum() or item.kind not in ("text", "image"):
+                continue
+            if item.kind == "image" and not os.path.isfile(item.path):
+                continue
+            self.items.append(item)
+
+    def _drop_orphan_images(self):
+        known = {item.id + ".png" for item in self.items if item.kind == "image"}
+        try:
+            for name in os.listdir(IMAGE_DIR):
+                if name not in known:
+                    os.unlink(os.path.join(IMAGE_DIR, name))
+        except OSError:
+            pass
+
+    def save(self):
+        self._save_source = 0
+        if not self.cfg["persist"]:
+            return False
+        tmp = HISTORY_FILE + ".tmp"
+        try:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                json.dump({"version": 1, "items": [i.to_dict() for i in self.items]},
+                          handle, ensure_ascii=False)
+            os.replace(tmp, HISTORY_FILE)
+        except OSError as err:
+            log("could not save history:", err)
+        return False
+
+    def _changed(self):
+        if not self._save_source:
+            self._save_source = GLib.timeout_add(400, self.save)
+        self.on_change()
+
+    def get(self, item_id):
+        for item in self.items:
+            if item.id == item_id:
+                return item
+        return None
+
+    def _insert(self, item):
+        existing = self.get(item.id)
+        if existing is not None:
+            if item.html and not existing.html:
+                existing.html = item.html          # the same text, now with formatting
+            if self.items[0] is existing:
+                existing.ts = item.ts      # copied again: refresh "copied ... ago"
+                self._changed()
+                return
+            if not item.html:
+                item.html = existing.html
+            self.items.remove(existing)
+            item.pinned = existing.pinned
+        self.items.insert(0, item)
+        self._trim()
+        self._changed()
+
+    def _trim(self):
+        unpinned = [i for i in self.items if not i.pinned]
+        for item in unpinned[self.cfg["max_items"]:]:
+            self.items.remove(item)
+            self._unlink(item)
+
+    @staticmethod
+    def _unlink(item):
+        if item.kind == "image":
+            try:
+                os.unlink(item.path)
+            except OSError:
+                pass
+
+    def add_text(self, text, html=""):
+        if not text or not text.strip() or len(text) > self.cfg["max_text_chars"]:
+            return
+        if not has_formatting(html) or len(html) > self.cfg["max_html_chars"]:
+            html = ""
+        digest = hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()[:40]
+        self._insert(Item("t" + digest, "text", text, html=html))
+
+    def add_image(self, pixbuf):
+        width, height = pixbuf.get_width(), pixbuf.get_height()
+        if width < 1 or height < 1 or width * height > self.cfg["max_image_pixels"]:
+            return
+        sha = hashlib.sha256()
+        sha.update(("%dx%dx%d" % (width, height, pixbuf.get_n_channels())).encode())
+        sha.update(pixbuf.get_pixels())
+        item = Item("i" + sha.hexdigest()[:40], "image")
+        if not os.path.isfile(item.path):
+            try:
+                pixbuf.savev(item.path, "png", [], [])
+                os.chmod(item.path, 0o600)
+            except GLib.Error as err:
+                log("could not store image:", err.message)
+                return
+        self._insert(item)
+
+    def touch(self, item_id):
+        item = self.get(item_id)
+        if item is not None and self.items[0] is not item:
+            self.items.remove(item)
+            self.items.insert(0, item)
+            item.ts = time.time()
+            self._changed()
+
+    def remove(self, item_id):
+        item = self.get(item_id)
+        if item is not None:
+            self.items.remove(item)
+            self._unlink(item)
+            self._changed()
+
+    def toggle_pin(self, item_id):
+        item = self.get(item_id)
+        if item is not None:
+            item.pinned = not item.pinned
+            self._trim()
+            self._changed()
+
+    def clear_unpinned(self):
+        for item in [i for i in self.items if not i.pinned]:
+            self.items.remove(item)
+            self._unlink(item)
+        self._changed()
+
+    def expire(self):
+        """Drop unpinned entries older than cfg["expire_days"] (0 = keep forever)."""
+        days = self.cfg["expire_days"]
+        if days <= 0:
+            return
+        limit = time.time() - days * 86400
+        old = [i for i in self.items if not i.pinned and 0 < i.ts < limit]
+        for item in old:
+            self.items.remove(item)
+            self._unlink(item)
+        if old:
+            self._changed()
+
+    def apply_limits(self):
+        self._trim()
+        self.expire()
+        self._changed()
+
+
+# --------------------------------------------------- virtual keyboard ----
+
+class VirtualKeyboard:
+    """Tiny uinput keyboard used to send the paste shortcut.
+
+    uinput works the same on X11 and Wayland. Access to /dev/uinput comes from
+    the udev rule shipped with the package (seat user only).
+    """
+
+    UI_SET_EVBIT = 0x40045564
+    UI_SET_KEYBIT = 0x40045565
+    UI_DEV_SETUP = 0x405C5503
+    UI_DEV_CREATE = 0x5501
+    UI_DEV_DESTROY = 0x5502
+    EV_SYN, EV_KEY = 0, 1
+    BUS_VIRTUAL = 0x06
+    KEYS = {"ctrl": 29, "shift": 42, "alt": 56, "v": 47, "insert": 110}
+
+    def __init__(self):
+        self.fd = None
+        self.created_at = 0.0
+
+    def open(self):
+        if self.fd is not None:
+            return True
+        try:
+            fd = os.open("/dev/uinput", os.O_WRONLY | os.O_NONBLOCK)
+        except OSError:
+            return False
+        try:
+            fcntl.ioctl(fd, self.UI_SET_EVBIT, self.EV_KEY)
+            for code in self.KEYS.values():
+                fcntl.ioctl(fd, self.UI_SET_KEYBIT, code)
+            setup = struct.pack("HHHH80sI", self.BUS_VIRTUAL, 0x5356, 0x0001, 1,
+                                b"SuperV virtual keyboard", 0)
+            fcntl.ioctl(fd, self.UI_DEV_SETUP, setup)
+            fcntl.ioctl(fd, self.UI_DEV_CREATE)
+        except OSError as err:
+            log("uinput setup failed:", err)
+            os.close(fd)
+            return False
+        self.fd = fd
+        self.created_at = time.monotonic()
+        return True
+
+    def close(self):
+        if self.fd is not None:
+            try:
+                fcntl.ioctl(self.fd, self.UI_DEV_DESTROY)
+            except OSError:
+                pass
+            os.close(self.fd)
+            self.fd = None
+
+    def _emit(self, ev_type, code, value):
+        now = time.time()
+        os.write(self.fd, struct.pack("llHHi", int(now), int((now % 1) * 1000000),
+                                      ev_type, code, value))
+
+    def ready_in_ms(self):
+        """The compositor needs a moment to pick up a freshly created device."""
+        return max(0, int((self.created_at + 0.6 - time.monotonic()) * 1000))
+
+    def send(self, shortcut):
+        codes = [self.KEYS[name] for name in shortcut.split("+") if name in self.KEYS]
+        if not codes or self.fd is None:
+            return False
+        try:
+            for code in codes:
+                self._emit(self.EV_KEY, code, 1)
+                self._emit(self.EV_SYN, 0, 0)
+                time.sleep(0.008)
+            for code in reversed(codes):
+                self._emit(self.EV_KEY, code, 0)
+                self._emit(self.EV_SYN, 0, 0)
+                time.sleep(0.008)
+        except OSError as err:
+            log("uinput write failed:", err)
+            return False
+        return True
+
+
+def session_is_wayland():
+    return os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland" or \
+        bool(os.environ.get("WAYLAND_DISPLAY"))
+
+
+# --------------------------------------------------------------- hotkey ----
+
+MEDIA_SCHEMA = "org.gnome.settings-daemon.plugins.media-keys"
+CUSTOM_SCHEMA = MEDIA_SCHEMA + ".custom-keybinding"
+CUSTOM_PATH = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/superv/"
+SHELL_SCHEMA = "org.gnome.shell.keybindings"
+SHELL_KEY = "toggle-message-tray"
+XFCE_PROPERTY = "/commands/custom/<Super>v"
+
+
+def _schema(schema_id):
+    source = Gio.SettingsSchemaSource.get_default()
+    return source.lookup(schema_id, True) if source else None
+
+
+def _is_xfce():
+    return "xfce" in os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
+
+
+def setup_hotkey():
+    """Bind Super+V to the toggle command. Returns a short status string."""
+    if _is_xfce() and shutil.which("xfconf-query"):
+        subprocess.call(["xfconf-query", "-c", "xfce4-keyboard-shortcuts", "-p", XFCE_PROPERTY,
+                         "-n", "-t", "string", "-s", TOGGLE_COMMAND])
+        return "xfce"
+    if not (_schema(MEDIA_SCHEMA) and _schema(CUSTOM_SCHEMA)):
+        return ""
+    binding = Gio.Settings.new_with_path(CUSTOM_SCHEMA, CUSTOM_PATH)
+    binding.set_string("name", "SuperV Clipboard History")
+    binding.set_string("command", TOGGLE_COMMAND)
+    binding.set_string("binding", "<Super>v")
+    media = Gio.Settings.new(MEDIA_SCHEMA)
+    paths = list(media.get_strv("custom-keybindings"))
+    if CUSTOM_PATH not in paths:
+        media.set_strv("custom-keybindings", paths + [CUSTOM_PATH])
+    # GNOME uses Super+V for the notification list by default (Super+M stays).
+    shell_schema = _schema(SHELL_SCHEMA)
+    if shell_schema and shell_schema.has_key(SHELL_KEY):
+        shell = Gio.Settings.new(SHELL_SCHEMA)
+        current = list(shell.get_strv(SHELL_KEY))
+        kept = [b for b in current if b.replace(" ", "").lower() != "<super>v"]
+        if kept != current:
+            shell.set_strv(SHELL_KEY, kept)
+    Gio.Settings.sync()
+    return "gnome"
+
+
+def remove_hotkey():
+    if _is_xfce() and shutil.which("xfconf-query"):
+        subprocess.call(["xfconf-query", "-c", "xfce4-keyboard-shortcuts", "-p", XFCE_PROPERTY, "-r"])
+    if _schema(MEDIA_SCHEMA) and _schema(CUSTOM_SCHEMA):
+        media = Gio.Settings.new(MEDIA_SCHEMA)
+        paths = list(media.get_strv("custom-keybindings"))
+        if CUSTOM_PATH in paths:
+            paths.remove(CUSTOM_PATH)
+            media.set_strv("custom-keybindings", paths)
+        binding = Gio.Settings.new_with_path(CUSTOM_SCHEMA, CUSTOM_PATH)
+        for key in ("name", "command", "binding"):
+            binding.reset(key)
+        shell_schema = _schema(SHELL_SCHEMA)
+        if shell_schema and shell_schema.has_key(SHELL_KEY):
+            Gio.Settings.new(SHELL_SCHEMA).reset(SHELL_KEY)
+        Gio.Settings.sync()
+    try:
+        os.unlink(HOTKEY_MARKER)
+    except OSError:
+        pass
+
+
+# ------------------------------------------------------------------- UI ----
+
+CSS = b"""
+.superv-window { background-color: transparent; }
+.superv-panel {
+    background-color: @theme_bg_color;
+    border: 1px solid alpha(@theme_fg_color, 0.16);
+    border-radius: 12px;
+    box-shadow: 0 6px 18px alpha(black, 0.32);
+}
+.superv-panel.superv-solid { border-radius: 0; box-shadow: none; }
+.superv-title { font-weight: bold; font-size: 1.05em; }
+.superv-hint { font-size: 0.82em; opacity: 0.6; }
+.superv-empty { opacity: 0.65; }
+.superv-scroller, .superv-scroller viewport { background-color: transparent; }
+
+/* The list rows are only containers: selection / hover is drawn on the card.
+   ID selectors keep themes from painting their own selection colour over it. */
+#superv-list, #superv-list > row, #superv-list > row:hover, #superv-list > row:active,
+#superv-list > row:selected, #superv-list > row:selected:hover,
+#superv-list > row:selected:focus, #superv-list > row:focus {
+    background-color: transparent;
+    background-image: none;
+    border: none;
+    box-shadow: none;
+    outline-width: 0;
+    color: @theme_fg_color;
+}
+#superv-list > row { padding: 3px 12px; }
+#superv-list > row label, #superv-list > row:selected label,
+#superv-list > row button, #superv-list > row:selected button { color: @theme_fg_color; }
+
+.superv-card {
+    background-color: alpha(@theme_fg_color, 0.07);
+    border: 1px solid alpha(@theme_fg_color, 0.08);
+    border-radius: 8px;
+    padding: 8px 6px 8px 9px;
+}
+#superv-list > row:hover .superv-card { background-color: alpha(@theme_fg_color, 0.11); }
+#superv-list > row:selected .superv-card {
+    background-color: alpha(@theme_fg_color, 0.13);
+    border-color: @theme_selected_bg_color;
+    box-shadow: inset 0 0 0 1px @theme_selected_bg_color;
+}
+.superv-card button {
+    min-width: 24px; min-height: 24px; padding: 0; margin: 0;
+    background-image: none; background-color: transparent; box-shadow: none;
+    opacity: 0;
+}
+#superv-list > row:hover .superv-card button,
+#superv-list > row:selected .superv-card button { opacity: 0.65; }
+#superv-list > row .superv-card button:hover {
+    opacity: 1; background-color: alpha(@theme_fg_color, 0.14);
+}
+#superv-list > row .superv-card button.superv-pinned,
+#superv-list > row:selected .superv-card button.superv-pinned {
+    opacity: 1; color: @theme_selected_bg_color;
+}
+.superv-card image.superv-thumb { border-radius: 4px; }
+.superv-badge { font-size: 0.78em; opacity: 0.55; min-width: 10px; margin-top: 2px; }
+.superv-meta { font-size: 0.78em; opacity: 0.55; }
+
+.superv-tab {
+    min-height: 0; min-width: 0; padding: 3px 9px;
+    border: 1px solid transparent; border-radius: 13px;
+    background-image: none; background-color: transparent; box-shadow: none; text-shadow: none;
+    font-size: 0.9em;
+}
+.superv-tab, .superv-tab label { color: alpha(@theme_fg_color, 0.72); }
+.superv-tab:hover { background-color: alpha(@theme_fg_color, 0.08); }
+.superv-tab:checked {
+    background-color: alpha(@theme_fg_color, 0.13);
+    border-color: @theme_selected_bg_color;
+}
+.superv-tab:checked, .superv-tab:checked label { color: @theme_fg_color; }
+.superv-previewscroll {
+    border-radius: 8px; border: 1px solid alpha(@theme_fg_color, 0.08);
+    background-color: alpha(@theme_fg_color, 0.05);
+}
+.superv-previewscroll viewport { background-color: transparent; }
+.superv-previewtext, .superv-previewtext text { background-color: transparent; color: @theme_fg_color; }
+.superv-gear { min-width: 28px; min-height: 28px; padding: 0; opacity: 0.7; }
+.superv-gear:hover { opacity: 1; }
+"""
+
+
+class Panel(Gtk.Window):
+    WIDTH = 384
+    HEIGHT = 520
+    SHADOW = 16
+    PREVIEW_LINES = 4
+    PREVIEW_CHARS = 400
+    TABS = ("all", "text", "code", "url", "sensitive", "image")
+
+    def __init__(self, app):
+        super().__init__(title=APP_NAME)
+        self.app = app
+        self.shown_at = 0.0
+        self.thumbs = {}
+        self.tab = "all"
+        self.tab_buttons = {}
+        self.preview_item = None
+        self.preview_view = None
+        self.revealed = False
+        self.dragged = False
+        self._state_source = 0
+        self.pending_action = None    # paste triggered with Ctrl held, run once Ctrl is up
+        self._probing = False
+
+        self.set_decorated(False)
+        self.set_resizable(False)
+        self.set_keep_above(True)
+        self.set_skip_taskbar_hint(True)
+        self.set_skip_pager_hint(True)
+        self.set_icon_name(APP_ID)
+        self.stick()
+        self.get_style_context().add_class("superv-window")
+
+        screen = self.get_screen()
+        visual = screen.get_rgba_visual()
+        self.translucent = bool(visual) and screen.is_composited()
+        if self.translucent:
+            self.set_visual(visual)
+            self.set_app_paintable(True)
+        self.pad = self.SHADOW if self.translucent else 0
+
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        panel.get_style_context().add_class("superv-panel")
+        if not self.translucent:
+            panel.get_style_context().add_class("superv-solid")
+        panel.set_size_request(self.WIDTH, self.HEIGHT)
+        for side in ("top", "bottom", "start", "end"):
+            getattr(panel, "set_margin_" + side)(self.pad)
+        self.add(panel)
+
+        header = Gtk.Box(spacing=8)
+        header.set_margin_top(12)
+        header.set_margin_start(16)
+        header.set_margin_end(10)
+        title = Gtk.Label(label=_("title"), xalign=0)
+        title.get_style_context().add_class("superv-title")
+        header.pack_start(title, False, False, 0)
+        version = Gtk.Label(label="v" + VERSION)
+        version.set_xalign(0.5)
+        version.set_margin_end(6)   # offsets the header's uneven side margins
+        version.set_valign(Gtk.Align.CENTER)
+        version.get_style_context().add_class("superv-hint")
+        header.set_center_widget(version)   # centred on the whole panel width
+        self.clear_button = Gtk.Button(label=_("clear"))
+        self.clear_button.set_relief(Gtk.ReliefStyle.NONE)
+        self.clear_button.set_can_focus(False)
+        self.clear_button.connect("clicked", lambda *_a: self.app.store.clear_unpinned())
+        header.pack_end(self.clear_button, False, False, 0)
+        gear = Gtk.Button.new_from_icon_name("superv-settings-symbolic", Gtk.IconSize.MENU)
+        gear.set_relief(Gtk.ReliefStyle.NONE)
+        gear.set_can_focus(False)
+        gear.set_tooltip_text(_("settings"))
+        gear.get_style_context().add_class("superv-gear")
+        gear.connect("clicked", lambda *_a: self.app.open_settings())
+        self.gear = gear
+        header.pack_end(gear, False, False, 0)
+        header_events = Gtk.EventBox()
+        header_events.set_visible_window(False)
+        header_events.add(header)
+        self._make_draggable(header_events)
+        panel.pack_start(header_events, False, False, 0)
+
+        tabbar = Gtk.Box(spacing=2)
+        tabbar.set_margin_top(8)
+        tabbar.set_margin_start(12)
+        tabbar.set_margin_end(12)
+        first = None
+        for tab in self.TABS:
+            button = Gtk.RadioButton.new_with_label_from_widget(first, _("tab_" + tab))
+            first = first or button
+            button.set_mode(False)             # draw as a button, not as a radio dot
+            button.set_relief(Gtk.ReliefStyle.NONE)
+            button.set_can_focus(False)
+            button.get_style_context().add_class("superv-tab")
+            button.connect("toggled", self._on_tab_toggled, tab)
+            tabbar.pack_start(button, False, False, 0)
+            self.tab_buttons[tab] = button
+        list_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        list_page.pack_start(tabbar, False, False, 0)
+
+        self.search = Gtk.SearchEntry()
+        self.search.set_placeholder_text(_("search"))
+        self.search.set_margin_top(8)
+        self.search.set_margin_bottom(8)
+        self.search.set_margin_start(12)
+        self.search.set_margin_end(12)
+        self.search.connect("search-changed", lambda *_a: self.rebuild())
+        list_page.pack_start(self.search, False, False, 0)
+
+        self.scroller = Gtk.ScrolledWindow()
+        self.scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.scroller.get_style_context().add_class("superv-scroller")
+        self.listbox = Gtk.ListBox()
+        self.listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.listbox.set_activate_on_single_click(True)
+        self.listbox.set_name("superv-list")
+        self.listbox.connect("row-activated", lambda _box, row: self.app.paste_item(row.item_id))
+        self.placeholder = Gtk.Label(justify=Gtk.Justification.CENTER, wrap=True)
+        self.placeholder.get_style_context().add_class("superv-empty")
+        self.placeholder.set_margin_start(24)
+        self.placeholder.set_margin_end(24)
+        self.placeholder.show()
+        self.listbox.set_placeholder(self.placeholder)
+        self.scroller.add(self.listbox)
+        list_page.pack_start(self.scroller, True, True, 0)
+
+        self.stack = Gtk.Stack()
+        self.stack.add_named(list_page, "list")
+        self.stack.add_named(self._build_preview_page(), "preview")
+        panel.pack_start(self.stack, True, True, 0)
+
+        self.hint = Gtk.Label(xalign=0.5)
+        self.hint.set_ellipsize(Pango.EllipsizeMode.END)
+        self.hint.get_style_context().add_class("superv-hint")
+        self.hint.set_margin_top(6)
+        self.hint.set_margin_bottom(9)
+        self.hint.set_margin_start(10)
+        self.hint.set_margin_end(10)
+        hint_events = Gtk.EventBox()
+        hint_events.set_visible_window(False)
+        hint_events.add(self.hint)
+        self._make_draggable(hint_events)
+        panel.pack_start(hint_events, False, False, 0)
+
+        panel.show_all()
+        self.moved_at = 0.0
+        self.connect("configure-event", self._on_configure)
+        self.connect("key-press-event", self._on_key)
+        self.connect("key-release-event", self._on_key_release)
+        self.connect("hide", self._on_hidden)
+        self.connect("focus-out-event", self._on_focus_out)
+        self.connect("delete-event", lambda *_a: self.hide() or True)
+
+    # -- preview ----------------------------------------------------------
+
+    PREVIEW_LIMIT = 200000
+
+    def _build_preview_page(self):
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        page.set_margin_top(8)
+        page.set_margin_start(12)
+        page.set_margin_end(12)
+        page.set_margin_bottom(2)
+        self.preview_meta = Gtk.Label(xalign=0)
+        self.preview_meta.set_ellipsize(Pango.EllipsizeMode.END)
+        self.preview_meta.get_style_context().add_class("superv-hint")
+        page.pack_start(self.preview_meta, False, False, 0)
+        self.preview_scroll = Gtk.ScrolledWindow()
+        self.preview_scroll.get_style_context().add_class("superv-previewscroll")
+        page.pack_start(self.preview_scroll, True, True, 0)
+        self.preview_note = Gtk.Label(xalign=0, wrap=True)
+        self.preview_note.get_style_context().add_class("superv-hint")
+        page.pack_start(self.preview_note, False, False, 0)
+        buttons = Gtk.Box(spacing=8)
+        back = Gtk.Button(label=_("back"))
+        back.set_can_focus(False)
+        back.connect("clicked", lambda *_a: self.close_preview())
+        self.reveal_button = Gtk.ToggleButton(label=_("reveal"))
+        self.reveal_button.set_can_focus(False)
+        self.reveal_button.set_no_show_all(True)
+        self.reveal_button.connect("toggled", self._on_reveal_toggled)
+        paste = Gtk.Button(label=_("paste_btn"))
+        paste.set_can_focus(False)
+        paste.get_style_context().add_class("suggested-action")
+        paste.connect("clicked", lambda *_a: self._paste_preview_now())
+        buttons.pack_start(back, False, False, 0)
+        buttons.pack_start(self.reveal_button, False, False, 0)
+        buttons.pack_end(paste, False, False, 0)
+        page.pack_start(buttons, False, False, 0)
+        return page
+
+    def _preview_text(self, item):
+        """(text to show, may it be edited)"""
+        text = item.text
+        if item.category == "sensitive" and not self.revealed:
+            shown = masked_text(text[:ANALYSE_CHARS], item.spans)
+            return shown + (" …" if len(text) > ANALYSE_CHARS else ""), False
+        if len(text) > self.PREVIEW_LIMIT:
+            return text[:self.PREVIEW_LIMIT], False
+        return text, True
+
+    def open_preview(self, item_id):
+        item = self.app.store.get(item_id)
+        if item is None:
+            return
+        self.preview_item = item
+        self.revealed = False
+        self.preview_view = None
+        child = self.preview_scroll.get_child()
+        if child is not None:
+            self.preview_scroll.remove(child)
+        details = [_("cat_" + item.category)] if item.category != "text" else []
+        details.append(relative_time(item.ts))
+        self.preview_meta.set_text("  ·  ".join(part for part in details if part))
+        self.reveal_button.set_active(False)
+        self.reveal_button.set_label(_("reveal"))
+        note = ""
+        if item.kind == "image":
+            try:
+                pixbuf = GdkPixbuf.Pixbuf.new_from_file(item.path)
+                width = self.WIDTH - 56
+                if pixbuf.get_width() > width:
+                    height = max(1, pixbuf.get_height() * width // pixbuf.get_width())
+                    pixbuf = pixbuf.scale_simple(width, height, GdkPixbuf.InterpType.BILINEAR)
+                content = Gtk.Image.new_from_pixbuf(pixbuf)
+                content.set_halign(Gtk.Align.START)
+                content.set_valign(Gtk.Align.START)
+            except GLib.Error:
+                content = Gtk.Label(label=_("image"))
+            self.preview_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+            self.reveal_button.hide()
+        else:
+            view = Gtk.TextView()
+            view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+            for side in ("left", "right", "top", "bottom"):
+                getattr(view, "set_%s_margin" % side)(10 if side in ("left", "right") else 8)
+            view.get_style_context().add_class("superv-previewtext")
+            if item.category == "code":
+                view.set_monospace(True)
+            self.preview_view = view
+            self._fill_preview(item)
+            content = view
+            self.preview_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+            if item.category == "sensitive":
+                self.reveal_button.show()
+            else:
+                self.reveal_button.hide()
+            note = _("truncated") if len(item.text) > self.PREVIEW_LIMIT else \
+                (_("preview_note") if item.category != "sensitive" else "")
+        self.preview_note.set_text(note)
+        self.preview_scroll.add(content)
+        content.show_all()
+        self.gear.set_sensitive(False)
+        self.clear_button.set_sensitive(False)
+        self.stack.set_visible_child_name("preview")
+        self.hint.set_text(_("hint_preview"))
+        if self.preview_view is not None:
+            self.preview_view.grab_focus()
+
+    def _fill_preview(self, item):
+        shown, editable = self._preview_text(item)
+        self.preview_view.get_buffer().set_text(shown)
+        self.preview_view.set_editable(editable)
+        self.preview_view.set_cursor_visible(editable)
+
+    def _on_reveal_toggled(self, button):
+        if self.preview_item is None or self.preview_view is None:
+            return
+        self.revealed = button.get_active()
+        button.set_label(_("hide_secret") if self.revealed else _("reveal"))
+        self._fill_preview(self.preview_item)
+
+    def close_preview(self):
+        if self.preview_item is None:
+            return
+        self.preview_item = None
+        self.preview_view = None
+        self.stack.set_visible_child_name("list")
+        self.gear.set_sensitive(True)
+        self.rebuild()
+        self.search.grab_focus_without_selecting()
+
+    def _paste_preview_now(self):
+        item = self.preview_item
+        if item is None:
+            return
+        view = self.preview_view
+        if view is not None and view.get_editable():
+            buffer = view.get_buffer()
+            text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
+            if text.strip() and text != item.text:
+                self.app.paste_text(text)      # edited: pasted as plain text, kept as a new entry
+                return
+        self.app.paste_item(item.id)
+
+    def _on_preview_key(self, key, ctrl):
+        if key == Gdk.KEY_Escape:
+            self.close_preview()
+            return True
+        if ctrl and key in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_ISO_Enter):
+            self._after_ctrl_up(self._paste_preview_now)
+            return True
+        return False          # everything else is typing into the text
+
+    # -- dragging ---------------------------------------------------------
+
+    def _make_draggable(self, widget):
+        """Dragging the header or the footer moves the panel."""
+        widget.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
+        widget.connect("button-press-event", self._on_drag_press)
+
+    def _on_drag_press(self, _widget, event):
+        if event.button == 1 and event.type == Gdk.EventType.BUTTON_PRESS:
+            self.dragged = True
+            self.begin_move_drag(event.button, int(event.x_root), int(event.y_root), event.time)
+            return True
+        return False
+
+    def _on_configure(self, _widget, event):
+        self.moved_at = time.monotonic()
+        if self.dragged and self.get_visible() and self.app.cfg["remember_position"]:
+            self._remember(event.x, event.y)
+        return False
+
+    def _remember(self, x, y):
+        """Store where the user dragged the panel, relative to the monitor it is on."""
+        width, height = self.WIDTH + 2 * self.pad, self.HEIGHT + 2 * self.pad
+        monitor = self.get_display().get_monitor_at_point(x + width // 2, y + height // 2)
+        if monitor is None:
+            return
+        geo = monitor.get_geometry()
+        self.app.state["positions"][monitor_key(monitor)] = [x - geo.x, y - geo.y]
+        if not self._state_source:
+            self._state_source = GLib.timeout_add(600, self._save_state)
+
+    def _save_state(self):
+        self._state_source = 0
+        save_state(self.app.state)
+        return False
+
+    def _remembered(self, monitor):
+        if not self.app.cfg["remember_position"]:
+            return None
+        saved = self.app.state["positions"].get(monitor_key(monitor))
+        if isinstance(saved, list) and len(saved) == 2 and \
+                all(isinstance(value, (int, float)) for value in saved):
+            geo = monitor.get_geometry()
+            return geo.x + int(saved[0]), geo.y + int(saved[1])
+        return None
+
+    # -- tabs -------------------------------------------------------------
+
+    def _on_tab_toggled(self, button, tab):
+        if button.get_active() and tab != self.tab:
+            self.tab = tab
+            self.listbox.unselect_all()
+            self.rebuild()
+            self.scroller.get_vadjustment().set_value(0)
+
+    def _switch_tab(self, step):
+        index = (self.TABS.index(self.tab) + step) % len(self.TABS)
+        self.tab_buttons[self.TABS[index]].set_active(True)
+
+    # -- list -------------------------------------------------------------
+
+    def _preview(self, text):
+        text = text[:4000]
+        lines = [line.rstrip() for line in text.strip("\n").expandtabs(4).split("\n")]
+        lines = [line for line in lines if line.strip()] or [""]
+        indent = min(len(line) - len(line.lstrip()) for line in lines)
+        clipped = [line[indent:] for line in lines[:self.PREVIEW_LINES]]
+        preview = "\n".join(clipped)[:self.PREVIEW_CHARS]
+        if len(lines) > self.PREVIEW_LINES:
+            preview += " …"
+        return preview
+
+    def _thumbnail(self, item):
+        if item.id not in self.thumbs:
+            try:
+                self.thumbs[item.id] = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                    item.path, self.WIDTH - 110, 130, True)
+            except GLib.Error:
+                self.thumbs[item.id] = None
+        return self.thumbs[item.id]
+
+    def _icon_button(self, icon, tooltip, callback, item_id):
+        button = Gtk.Button.new_from_icon_name(icon, Gtk.IconSize.MENU)
+        button.set_relief(Gtk.ReliefStyle.NONE)
+        button.set_can_focus(False)
+        button.set_tooltip_text(tooltip)
+        button.set_valign(Gtk.Align.START)
+        button.connect("clicked", lambda *_a: callback(item_id))
+        return button
+
+    def _make_row(self, item, number):
+        row = Gtk.ListBoxRow()
+        row.item_id = item.id
+        card = Gtk.Box(spacing=7)
+        card.get_style_context().add_class("superv-card")
+
+        badge = Gtk.Label(label=str(number) if number <= 9 else "")
+        badge.set_valign(Gtk.Align.START)
+        badge.get_style_context().add_class("superv-badge")
+        card.pack_start(badge, False, False, 0)
+
+        if item.kind == "image":
+            thumb = self._thumbnail(item)
+            if thumb is not None:
+                content = Gtk.Image.new_from_pixbuf(thumb)
+                content.get_style_context().add_class("superv-thumb")
+            else:
+                content = Gtk.Label(label=_("image"))
+            content.set_halign(Gtk.Align.START)
+        else:
+            content = Gtk.Label(xalign=0, yalign=0)
+            content.set_text(self._preview(item.display_text))
+            content.set_line_wrap(True)
+            content.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            content.set_lines(self.PREVIEW_LINES)
+            content.set_ellipsize(Pango.EllipsizeMode.END)
+            content.set_max_width_chars(10)
+        details = [_("cat_" + item.category)] if item.category != "text" else []
+        if item.html:
+            details.append(_("cat_rich"))
+        details.append(relative_time(item.ts))
+        meta = Gtk.Label(label="  ·  ".join(part for part in details if part), xalign=0)
+        meta.get_style_context().add_class("superv-meta")
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        body.pack_start(content, True, True, 0)
+        body.pack_start(meta, False, False, 0)
+        card.pack_start(body, True, True, 0)
+
+        buttons = Gtk.Box(spacing=0)
+        buttons.set_valign(Gtk.Align.START)
+        if item.kind == "text" and item.html:
+            plain_default = not self.app.cfg["paste_formatted"]
+            buttons.pack_start(self._icon_button(
+                "superv-format-symbolic", _("fmt_with") if plain_default else _("fmt_without"),
+                lambda item_id: self.app.paste_item(item_id, formatted=plain_default), item.id),
+                False, False, 0)
+        pin = self._icon_button("superv-pin-symbolic", _("unpin") if item.pinned else _("pin"),
+                                self.app.store.toggle_pin, item.id)
+        if item.pinned:
+            pin.get_style_context().add_class("superv-pinned")
+        buttons.pack_start(pin, False, False, 0)
+        buttons.pack_start(self._icon_button("superv-delete-symbolic", _("delete"),
+                                             self.app.store.remove, item.id), False, False, 0)
+        card.pack_end(buttons, False, False, 0)
+        row.add(card)
+        row.show_all()
+        return row
+
+    def rebuild(self):
+        selected = self.listbox.get_selected_row()
+        keep_id = selected.item_id if selected else None
+        for child in self.listbox.get_children():
+            self.listbox.remove(child)
+        query = self.search.get_text().strip().lower()
+        items = self.app.store.items
+        if self.tab != "all":
+            items = [i for i in items if i.category == self.tab]
+        if query:
+            items = [i for i in items if i.kind == "text" and query in i.text.lower()]
+        live = {i.id for i in self.app.store.items}
+        self.thumbs = {k: v for k, v in self.thumbs.items() if k in live}
+        choose = None
+        for number, item in enumerate(items, 1):
+            row = self._make_row(item, number)
+            self.listbox.add(row)
+            if item.id == keep_id:
+                choose = row
+        self.placeholder.set_text(_("no_match") if query else
+                                  _("empty") if self.tab == "all" else _("empty_tab"))
+        self.clear_button.set_sensitive(any(not i.pinned for i in self.app.store.items))
+        if self.preview_item is None:
+            self.hint.set_text(_("hint") if self.app.can_paste() else _("hint_copy_only"))
+        self._select(choose or self.listbox.get_row_at_index(0))
+
+    def _select(self, row):
+        if row is None:
+            return
+        self.listbox.select_row(row)
+        GLib.idle_add(self._scroll_to, row)
+
+    def _scroll_to(self, row):
+        if row.get_parent() is None:
+            return False
+        alloc = row.get_allocation()
+        adj = self.scroller.get_vadjustment()
+        if alloc.y < adj.get_value():
+            adj.set_value(alloc.y)
+        elif alloc.y + alloc.height > adj.get_value() + adj.get_page_size():
+            adj.set_value(alloc.y + alloc.height - adj.get_page_size())
+        return False
+
+    def _move(self, step):
+        rows = self.listbox.get_children()
+        if not rows:
+            return
+        current = self.listbox.get_selected_row()
+        index = rows.index(current) if current in rows else -1
+        self._select(rows[max(0, min(len(rows) - 1, index + step))])
+
+    # -- events -----------------------------------------------------------
+
+    def _on_key(self, _widget, event):
+        key = event.keyval
+        ctrl = bool(event.state & Gdk.ModifierType.CONTROL_MASK)
+        if self.preview_item is not None:
+            return self._on_preview_key(key, ctrl)
+        row = self.listbox.get_selected_row()
+        if key == Gdk.KEY_Escape:
+            if self.search.get_text():
+                self.search.set_text("")
+            else:
+                self.hide()
+            return True
+        if key in (Gdk.KEY_Up, Gdk.KEY_KP_Up):
+            self._move(-1)
+            return True
+        if key in (Gdk.KEY_Down, Gdk.KEY_KP_Down):
+            self._move(1)
+            return True
+        if key in (Gdk.KEY_Page_Up, Gdk.KEY_KP_Page_Up):
+            self._move(-4)
+            return True
+        if key in (Gdk.KEY_Page_Down, Gdk.KEY_KP_Page_Down):
+            self._move(4)
+            return True
+        if key == Gdk.KEY_space and not self.search.get_text():
+            if row is not None:
+                self.open_preview(row.item_id)
+            return True          # (once something is typed, Space is just a space)
+        if key in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_ISO_Enter):
+            if row is not None:
+                other = bool(event.state & Gdk.ModifierType.SHIFT_MASK)   # Shift+Enter: the other way
+                self.app.paste_item(row.item_id, (not self.app.cfg["paste_formatted"]) if other else None)
+            return True
+        if key in (Gdk.KEY_Delete, Gdk.KEY_KP_Delete) and not self.search.get_text():
+            if row is not None:
+                self._remove_keeping_position(row)
+            return True
+        if ctrl and key in (Gdk.KEY_p, Gdk.KEY_P):
+            if row is not None:
+                self.app.store.toggle_pin(row.item_id)
+            return True
+        if ctrl and (Gdk.KEY_1 <= key <= Gdk.KEY_9 or Gdk.KEY_KP_1 <= key <= Gdk.KEY_KP_9):
+            self._quick_pick(key - (Gdk.KEY_1 if key <= Gdk.KEY_9 else Gdk.KEY_KP_1))
+            return True
+        if ctrl and key in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab):
+            self._switch_tab(-1 if key == Gdk.KEY_ISO_Left_Tab else 1)
+            return True
+        if key in (Gdk.KEY_Left, Gdk.KEY_Right) and not self.search.get_text():
+            self._switch_tab(-1 if key == Gdk.KEY_Left else 1)
+            return True
+        if not self.search.is_focus():
+            self.search.grab_focus_without_selecting()
+        return False
+
+    def _quick_pick(self, index):
+        """Ctrl+1..9. Counts the entries of the list on screen - including those
+        scrolled out of view. If that list is shorter (another tab, a search),
+        the number counts the whole history instead, so the key always does something."""
+        row = self.listbox.get_row_at_index(index)
+        if row is not None:
+            item_id = row.item_id
+            self._select(row)
+        elif index < len(self.app.store.items):
+            item_id = self.app.store.items[index].id
+        else:
+            return
+        self._after_ctrl_up(lambda: self.app.paste_item(item_id))
+
+    def _after_ctrl_up(self, action):
+        """Pasting while Ctrl is still held would turn the paste shortcut into
+        Ctrl+Shift+Insert, which most programs ignore: wait until Ctrl is up."""
+        if self.pending_action is None:
+            GLib.timeout_add(25, self._poll_ctrl, time.monotonic())
+        self.pending_action = action
+
+    def _ctrl_down(self):
+        try:
+            keymap = Gdk.Keymap.get_for_display(self.get_display())
+            return bool(keymap.get_modifier_state() & Gdk.ModifierType.CONTROL_MASK)
+        except (AttributeError, TypeError):
+            return False
+
+    def _run_pending(self):
+        action, self.pending_action = self.pending_action, None
+        if action is not None:
+            action()
+
+    def _poll_ctrl(self, started):
+        if self.pending_action is None:
+            return False
+        if self._ctrl_down() and time.monotonic() - started < 5:
+            return True
+        self._run_pending()
+        return False
+
+    def _on_key_release(self, _widget, event):
+        if self.pending_action is not None and event.keyval in (Gdk.KEY_Control_L, Gdk.KEY_Control_R):
+            self._run_pending()
+            return True
+        return False
+
+    def _on_hidden(self, *_args):
+        self.pending_action = None
+
+    def _remove_keeping_position(self, row):
+        rows = self.listbox.get_children()
+        index = rows.index(row)
+        neighbour = rows[index + 1] if index + 1 < len(rows) else (rows[index - 1] if index else None)
+        if neighbour is not None:
+            self.listbox.select_row(neighbour)
+        self.app.store.remove(row.item_id)
+
+    def _on_focus_out(self, *_args):
+        GLib.timeout_add(90, self._hide_if_inactive)
+        return False
+
+    def _hide_if_inactive(self):
+        if self.get_visible() and not self.is_active() and \
+                time.monotonic() - self.shown_at > 0.35 and \
+                time.monotonic() - self.moved_at > 0.6:
+            self.hide()
+        return False
+
+    # -- show / hide ------------------------------------------------------
+
+    def _server_time(self):
+        gdk_window = self.get_window()
+        if GdkX11 is not None and isinstance(gdk_window, GdkX11.X11Window):
+            # A fresh X server timestamp lets the window manager give us focus
+            # although the request does not come from a click in our own window.
+            stamp = GdkX11.x11_get_server_time(gdk_window)
+            gdk_window.set_user_time(stamp)
+            return stamp
+        return Gdk.CURRENT_TIME
+
+    def _pointer_monitor(self, display):
+        try:
+            _screen, px, py = display.get_default_seat().get_pointer().get_position()
+            return display.get_monitor_at_point(px, py), px, py
+        except (AttributeError, TypeError):
+            return None, None, None
+
+    def _focused_monitor(self, display):
+        """Monitor of the window the user is working in (X11 sessions)."""
+        try:
+            active = self.get_screen().get_active_window()
+            if active is not None:
+                return display.get_monitor_at_window(active)
+        except (AttributeError, TypeError, GLib.Error):
+            pass
+        return None
+
+    def _position_on(self, monitor, px=None, py=None):
+        """Top-left of the window on the given monitor (centred, or at the pointer)."""
+        width, height = self.WIDTH + 2 * self.pad, self.HEIGHT + 2 * self.pad
+        area = monitor.get_workarea()
+        saved = self._remembered(monitor)
+        if saved is not None:
+            x, y = saved
+        elif px is not None and area.x <= px < area.x + area.width and \
+                area.y <= py < area.y + area.height:
+            x, y = px - self.pad - 24, py - self.pad - 24
+        else:
+            x = area.x + (area.width - width) // 2
+            y = area.y + (area.height - height) // 2
+        x = max(area.x - self.pad, min(x, area.x + area.width - width + self.pad))
+        y = max(area.y - self.pad, min(y, area.y + area.height - height + self.pad))
+        return x, y
+
+    def _target_position(self):
+        """X11 sessions: the monitor with the focused window, else the pointer's."""
+        display = self.get_display()
+        pointer_monitor, px, py = self._pointer_monitor(display)
+        at_pointer = self.app.cfg["position"] == "pointer"
+        monitor = pointer_monitor if at_pointer else self._focused_monitor(display)
+        monitor = monitor or pointer_monitor or display.get_primary_monitor() or display.get_monitor(0)
+        return self._position_on(monitor, px if at_pointer else None, py)
+
+    def popup(self):
+        if self._probing:
+            return
+        self.dragged = False
+        self.pending_action = None
+        self.preview_item = None
+        self.preview_view = None
+        self.stack.set_visible_child_name("list")
+        self.gear.set_sensitive(True)
+        self.app.store.expire()
+        self.search.set_text("")
+        self.listbox.unselect_all()
+        self.tab = "all"
+        self.tab_buttons["all"].set_active(True)
+        self.rebuild()
+        self.scroller.get_vadjustment().set_value(0)
+        self.realize()
+        if session_is_wayland():
+            # An X11 client cannot see the pointer or the focus once they are
+            # over a native Wayland window, but the compositor puts every new
+            # window on the monitor you are on. An invisible 1x1 window finds
+            # that monitor first; the panel is then shown once, in its place.
+            self._probe_monitor(self._show_on_monitor)
+        else:
+            self._show_at(self._target_position())
+
+    def _probe_monitor(self, done):
+        self._probing = True
+        probe = Gtk.Window(title=APP_NAME + " probe")
+        probe.set_decorated(False)
+        probe.set_skip_taskbar_hint(True)
+        probe.set_skip_pager_hint(True)
+        probe.set_accept_focus(False)
+        probe.set_focus_on_map(False)
+        probe.set_default_size(1, 1)
+        visual = probe.get_screen().get_rgba_visual()
+        if visual is not None:
+            probe.set_visual(visual)
+        probe.set_app_paintable(True)      # nothing is drawn: fully transparent
+        probe.set_opacity(0)
+        state = {"done": False}
+
+        def finish():
+            if state["done"]:
+                return False
+            state["done"] = True
+            monitor = None
+            try:
+                if probe.get_window() is not None:
+                    monitor = self.get_display().get_monitor_at_window(probe.get_window())
+            except (AttributeError, TypeError, GLib.Error):
+                pass
+            probe.destroy()
+            self._probing = False
+            done(monitor)
+            return False
+
+        probe.connect("map-event", lambda *_a: GLib.timeout_add(35, finish) and False)
+        GLib.timeout_add(300, finish)      # in case no map event arrives
+        probe.show()
+
+    def _show_on_monitor(self, monitor):
+        display = self.get_display()
+        monitor = monitor or self._pointer_monitor(display)[0] or \
+            display.get_primary_monitor() or display.get_monitor(0)
+        self._show_at(self._position_on(monitor))
+
+    def _show_at(self, target):
+        """Map the panel at its final place; it stays invisible until it is there."""
+        self.shown_at = time.monotonic()
+        self.move(*target)
+        self.set_opacity(0)
+        stamp = self._server_time()
+        self.show()
+        self.present_with_time(stamp)
+        self.search.grab_focus_without_selecting()
+        GLib.timeout_add(25, self._reveal, tuple(target), 0)
+        GLib.timeout_add(450, self._retry_focus)
+
+    def _reveal(self, target, attempt):
+        gdk_window = self.get_window()
+        if not self.get_visible() or gdk_window is None:
+            self.set_opacity(1)
+            return False
+        if not gdk_window.is_visible() and attempt < 6:
+            GLib.timeout_add(25, self._reveal, target, attempt + 1)
+            return False
+        if tuple(self.get_position()) != target and attempt < 90:
+            # The window manager put it somewhere else (for instance back where
+            # it was dragged to earlier): correct that once, then show it.
+            gdk_window.move(*target)
+            GLib.timeout_add(30, self._reveal, target, 90)
+            return False
+        self.set_opacity(1)
+        return False
+
+    def _retry_focus(self):
+        if self.get_visible() and not self.is_active():
+            self.present_with_time(self._server_time())
+        return False
+
+
+# -------------------------------------------------------------- settings ----
+
+class SettingsWindow(Gtk.Window):
+    """Edits a copy of the settings; nothing changes until "Save" is pressed."""
+
+    SHORTCUTS = (("shift+insert", "Shift+Insert"), ("ctrl+v", "Ctrl+V"), ("ctrl+shift+v", "Ctrl+Shift+V"))
+
+    def __init__(self, app):
+        super().__init__(title="%s – %s" % (APP_NAME, _("settings")))
+        self.app = app
+        self.set_icon_name(APP_ID)
+        self.set_resizable(False)
+        self.set_border_width(18)
+        self.set_position(Gtk.WindowPosition.CENTER)
+        cfg = app.cfg
+
+        grid = Gtk.Grid(column_spacing=18, row_spacing=12)
+        self.add(grid)
+        self._line = 0
+
+        self.max_items = Gtk.SpinButton.new_with_range(5, 500, 5)
+        self.max_items.set_value(cfg["max_items"])
+        self._add(grid, "set_max_items", self.max_items)
+
+        self.expire_days = Gtk.SpinButton.new_with_range(0, 3650, 1)
+        self.expire_days.set_value(cfg["expire_days"])
+        self._add(grid, "set_expire", self.expire_days)
+        note = Gtk.Label(label=_("set_expire_note"), xalign=0)
+        note.get_style_context().add_class("dim-label")
+        grid.attach(note, 0, self._line, 2, 1)
+        self._line += 1
+
+        self.remember = Gtk.Switch(active=cfg["remember_position"])
+        self._add(grid, "set_remember", self.remember)
+        self.reset_positions = Gtk.Button(label=_("set_reset_pos"))
+        self.reset_positions.set_halign(Gtk.Align.START)
+        self.reset_positions.set_sensitive(bool(app.state["positions"]))
+        self.reset_positions.connect("clicked", self._on_reset_positions)
+        grid.attach(self.reset_positions, 0, self._line, 2, 1)
+        self._line += 1
+
+        self.paste = Gtk.Switch(active=cfg["paste_on_select"])
+        self._add(grid, "set_paste", self.paste)
+
+        self.shortcut = Gtk.ComboBoxText()
+        for value, label in self.SHORTCUTS:
+            self.shortcut.append(value, label)
+        if not self.shortcut.set_active_id(cfg["paste_shortcut"].replace(" ", "").lower()):
+            self.shortcut.set_active(0)
+        self._add(grid, "set_shortcut", self.shortcut)
+
+        self.formatted = Gtk.Switch(active=cfg["paste_formatted"])
+        self._add(grid, "set_formatted", self.formatted)
+        fnote = Gtk.Label(label=_("set_formatted_note"), xalign=0, wrap=True)
+        fnote.set_max_width_chars(48)
+        fnote.get_style_context().add_class("dim-label")
+        grid.attach(fnote, 0, self._line, 2, 1)
+        self._line += 1
+
+        self.persist = Gtk.Switch(active=cfg["persist"])
+        self._add(grid, "set_persist", self.persist)
+
+        buttons = Gtk.Box(spacing=8)
+        buttons.set_halign(Gtk.Align.END)
+        buttons.set_margin_top(8)
+        cancel = Gtk.Button(label=_("cancel"))
+        cancel.connect("clicked", lambda *_a: self.destroy())
+        save = Gtk.Button(label=_("save"))
+        save.get_style_context().add_class("suggested-action")
+        save.connect("clicked", self._on_save)
+        buttons.pack_start(cancel, False, False, 0)
+        buttons.pack_start(save, False, False, 0)
+        grid.attach(buttons, 0, self._line, 2, 1)
+
+        self.connect("key-press-event", self._on_key)
+        grid.show_all()
+
+    def _add(self, grid, label_key, control):
+        label = Gtk.Label(label=_(label_key), xalign=0)
+        label.set_hexpand(True)
+        control.set_halign(Gtk.Align.END)
+        control.set_valign(Gtk.Align.CENTER)
+        grid.attach(label, 0, self._line, 1, 1)
+        grid.attach(control, 1, self._line, 1, 1)
+        self._line += 1
+
+    def _on_key(self, _widget, event):
+        if event.keyval == Gdk.KEY_Escape:
+            self.destroy()
+            return True
+        return False
+
+    def _on_reset_positions(self, button):
+        self.app.state["positions"] = {}
+        save_state(self.app.state)
+        button.set_sensitive(False)
+
+    def _on_save(self, *_args):
+        self.max_items.update()
+        self.expire_days.update()
+        cfg = self.app.cfg
+        cfg["max_items"] = self.max_items.get_value_as_int()
+        cfg["expire_days"] = self.expire_days.get_value_as_int()
+        cfg["remember_position"] = self.remember.get_active()
+        cfg["paste_on_select"] = self.paste.get_active()
+        cfg["paste_formatted"] = self.formatted.get_active()
+        cfg["paste_shortcut"] = self.shortcut.get_active_id() or "shift+insert"
+        cfg["persist"] = self.persist.get_active()
+        save_config(cfg)
+        self.app.store.apply_limits()
+        self.destroy()
+
+
+# ----------------------------------------------------------- application ----
+
+class SuperV(Gtk.Application):
+    TEXT_TARGETS = {"UTF8_STRING", "STRING", "TEXT", "COMPOUND_TEXT", "text/plain",
+                    "text/plain;charset=utf-8"}
+    SECRET_TARGET = "x-kde-passwordManagerHint"
+
+    def __init__(self):
+        super().__init__(application_id=APP_ID,
+                         flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
+        GLib.set_prgname(APP_ID)
+        GLib.set_application_name(APP_NAME)
+        none = GLib.OptionArg.NONE
+        for name, char, text in (
+                ("toggle", "t", "Show or hide the history panel"),
+                ("show", "s", "Show the history panel"),
+                ("quit", "q", "Stop the background process"),
+                ("setup-hotkey", 0, "Bind Super+V to the panel and exit"),
+                ("remove-hotkey", 0, "Remove the Super+V binding and exit"),
+                ("version", "v", "Print the version and exit")):
+            self.add_main_option(name, ord(char) if char else 0, GLib.OptionFlags.NONE,
+                                 none, text, None)
+        self.cfg = None
+        self.state = None
+        self.store = None
+        self.panel = None
+        self.settings = None
+        self.clipboard = None
+        self.primary = None
+        self.keyboard = VirtualKeyboard()
+        self._read_source = 0
+        self._interface = None
+        self._has_html = False
+        self._owner = None
+        self._rich = None
+
+    # -- startup ----------------------------------------------------------
+
+    def do_handle_local_options(self, options):
+        if options.contains("version"):
+            print(APP_NAME, VERSION, "- by", AUTHOR)
+            return 0
+        if options.contains("setup-hotkey"):
+            result = setup_hotkey()
+            print("Super+V is now bound to SuperV." if result else
+                  "No supported desktop found - bind '%s' to Super+V manually." % TOGGLE_COMMAND)
+            return 0 if result else 1
+        if options.contains("remove-hotkey"):
+            remove_hotkey()
+            print("Super+V binding removed.")
+            return 0
+        return -1
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        self.cfg = load_config()
+        self.state = load_state()
+        self.store = Store(self.cfg, self._on_store_changed)
+        self.store.expire()
+        GLib.timeout_add_seconds(3600, self._expire_tick)
+        self.keyboard.open()
+
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_USER + 10)
+        self._follow_color_scheme()
+
+        self.clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+        self.primary = Gtk.Clipboard.get(Gdk.SELECTION_PRIMARY)
+        self.clipboard.connect("owner-change", lambda *_a: self._schedule_read())
+        self._schedule_read()
+
+        self.panel = Panel(self)
+
+        for name, handler in (("toggle", self.toggle), ("show", self.show_panel),
+                              ("quit", self.quit)):
+            action = Gio.SimpleAction.new(name, None)
+            action.connect("activate", lambda _action, _param, fn=handler: fn())
+            self.add_action(action)
+
+        self._first_run_hotkey()
+        self.hold()
+
+    def do_shutdown(self):
+        if self.store is not None:
+            self.store.save()
+        self.keyboard.close()
+        Gtk.Application.do_shutdown(self)
+
+    def do_activate(self):
+        self.show_panel()
+
+    def do_command_line(self, command_line):
+        options = command_line.get_options_dict()
+        if options.contains("quit"):
+            self.quit()
+        elif options.contains("toggle"):
+            self.toggle()
+        elif options.contains("show"):
+            self.show_panel()
+        return 0
+
+    def _first_run_hotkey(self):
+        if os.path.exists(HOTKEY_MARKER):
+            return
+        try:
+            result = setup_hotkey()
+        except GLib.Error as err:
+            log("hotkey setup failed:", err.message)
+            return
+        if result:
+            try:
+                os.makedirs(CONFIG_DIR, mode=0o700, exist_ok=True)
+                with open(HOTKEY_MARKER, "w", encoding="utf-8") as handle:
+                    handle.write(result + "\n")
+            except OSError:
+                pass
+
+    def _follow_color_scheme(self):
+        schema = _schema("org.gnome.desktop.interface")
+        if not schema or not schema.has_key("color-scheme"):
+            return
+        self._interface = Gio.Settings.new("org.gnome.desktop.interface")
+
+        def apply(*_args):
+            dark = self._interface.get_string("color-scheme") == "prefer-dark"
+            Gtk.Settings.get_default().set_property("gtk-application-prefer-dark-theme", dark)
+
+        self._interface.connect("changed::color-scheme", apply)
+        apply()
+
+    # -- panel ------------------------------------------------------------
+
+    def show_panel(self):
+        self._schedule_read(10)
+        self.panel.popup()
+
+    def _expire_tick(self):
+        self.store.expire()
+        return True
+
+    def open_settings(self):
+        self.panel.hide()
+        if self.settings is None:
+            self.settings = SettingsWindow(self)
+            self.settings.connect("destroy", self._on_settings_closed)
+        self.settings.present()
+
+    def _on_settings_closed(self, *_args):
+        self.settings = None
+
+    def toggle(self):
+        if self.panel.get_visible():
+            self.panel.hide()
+        else:
+            self.show_panel()
+
+    def _on_store_changed(self):
+        if self.panel is not None and self.panel.get_visible():
+            self.panel.rebuild()
+
+    # -- clipboard watching -----------------------------------------------
+
+    def _schedule_read(self, delay=120):
+        if self._read_source:
+            GLib.source_remove(self._read_source)
+        self._read_source = GLib.timeout_add(delay, self._read)
+
+    def _read(self):
+        self._read_source = 0
+        self.clipboard.request_targets(self._on_targets)
+        return False
+
+    def _on_targets(self, clipboard, atoms, *_rest):
+        names = {atom.name() for atom in atoms} if atoms else set()
+        if not names or self.SECRET_TARGET in names:
+            return  # empty, or flagged as a secret by a password manager
+        if names & self.TEXT_TARGETS:
+            self._has_html = "text/html" in names
+            clipboard.request_text(self._on_text)
+        elif any(name.startswith("image/") for name in names):
+            clipboard.request_image(self._on_image)
+
+    def _on_text(self, clipboard, text, *_rest):
+        if not text:
+            return
+        if self._has_html:
+            clipboard.request_contents(Gdk.Atom.intern("text/html", False), self._on_html, text)
+        else:
+            self.store.add_text(text)
+
+    def _on_html(self, _clipboard, data, text):
+        html = ""
+        try:
+            if data is not None and data.get_length() > 0:
+                html = decode_html(bytes(data.get_data()))
+        except (TypeError, ValueError):
+            html = ""
+        self.store.add_text(text, html)
+
+    def _on_image(self, _clipboard, pixbuf, *_rest):
+        if pixbuf is not None:
+            self.store.add_image(pixbuf)
+
+    # -- pasting ----------------------------------------------------------
+
+    def can_paste(self):
+        if not self.cfg["paste_on_select"]:
+            return False
+        if self.keyboard.open():
+            return True
+        return not session_is_wayland() and bool(shutil.which("xdotool"))
+
+    def paste_item(self, item_id, formatted=None):
+        """Paste an entry. formatted=None follows the setting, True/False forces it."""
+        item = self.store.get(item_id)
+        if item is None:
+            return
+        shortcut = self.cfg["paste_shortcut"].replace(" ", "").lower()
+        if item.kind == "text":
+            if formatted is None:
+                formatted = self.cfg["paste_formatted"]
+            if formatted and item.html:
+                self._set_rich(item.text, item.html)
+            else:
+                self.clipboard.set_text(item.text, -1)
+            if "insert" in shortcut:
+                # Terminals paste the primary selection on Shift+Insert, every
+                # other toolkit pastes the clipboard - so both carry the entry.
+                self.primary.set_text(item.text, -1)
+        else:
+            try:
+                self.clipboard.set_image(GdkPixbuf.Pixbuf.new_from_file(item.path))
+            except GLib.Error as err:
+                log("could not load image:", err.message)
+                return
+        self.store.touch(item.id)
+        self._finish_paste(shortcut)
+
+    def paste_text(self, text):
+        """Paste text that was edited in the preview (plain; it becomes a new entry)."""
+        shortcut = self.cfg["paste_shortcut"].replace(" ", "").lower()
+        self.clipboard.set_text(text, -1)
+        if "insert" in shortcut:
+            self.primary.set_text(text, -1)
+        self._finish_paste(shortcut)
+
+    def _finish_paste(self, shortcut):
+        self.panel.hide()
+        if self.cfg["paste_on_select"]:
+            # Give the previous window a moment to get its focus back (and a
+            # just-created virtual keyboard a moment to be picked up).
+            self.keyboard.open()
+            GLib.timeout_add(max(220, self.keyboard.ready_in_ms()), self._send_paste, shortcut)
+
+    def _set_rich(self, text, html):
+        """Offer the clipboard as formatted (text/html) and plain text at once.
+
+        Gtk.Clipboard.set_with_data is not available from Python, so a hidden
+        widget takes ownership of the selection and answers the requests."""
+        if self._owner is None:
+            self._owner = Gtk.Invisible()
+            self._owner.realize()
+            self._owner.connect("selection-get", self._on_selection_get)
+        self._rich = (text, html_for_clipboard(html))
+        targets = [Gtk.TargetEntry.new("text/html", 0, 1)] + \
+            [Gtk.TargetEntry.new(name, 0, 0) for name in
+             ("UTF8_STRING", "text/plain;charset=utf-8", "text/plain", "STRING")]
+        Gtk.selection_clear_targets(self._owner, Gdk.SELECTION_CLIPBOARD)
+        Gtk.selection_add_targets(self._owner, Gdk.SELECTION_CLIPBOARD, targets)
+        if not Gtk.selection_owner_set(self._owner, Gdk.SELECTION_CLIPBOARD, Gdk.CURRENT_TIME):
+            log("could not offer formatted text, pasting it as plain text")
+            self.clipboard.set_text(text, -1)
+
+    def _on_selection_get(self, _widget, selection, info, _time):
+        if self._rich is None:
+            return
+        text, payload = self._rich
+        if info == 1:
+            selection.set(Gdk.Atom.intern("text/html", False), 8, payload)
+        else:
+            selection.set_text(text, -1)
+
+    def _send_paste(self, shortcut):
+        if self.keyboard.open() and self.keyboard.send(shortcut):
+            return False
+        if not session_is_wayland() and shutil.which("xdotool"):
+            keys = "+".join({"insert": "Insert"}.get(k, k) for k in shortcut.split("+"))
+            subprocess.Popen(["xdotool", "key", "--clearmodifiers", keys])
+        else:
+            log("cannot simulate the paste shortcut (no access to /dev/uinput)")
+        return False
+
+
+def main():
+    return SuperV().run(sys.argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

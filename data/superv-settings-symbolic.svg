@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <g fill="#2e3436">
+    <path fill-rule="evenodd" d="M8 3.6a4.4 4.4 0 1 0 0 8.8 4.4 4.4 0 0 0 0-8.8zm0 2.6a1.8 1.8 0 1 1 0 3.6 1.8 1.8 0 0 1 0-3.6z"/>
+    <rect x="6.9" y="0.9" width="2.2" height="3.4" rx="0.7"/>
+    <rect x="6.9" y="0.9" width="2.2" height="3.4" rx="0.7" transform="rotate(45 8 8)"/>
+    <rect x="6.9" y="0.9" width="2.2" height="3.4" rx="0.7" transform="rotate(90 8 8)"/>
+    <rect x="6.9" y="0.9" width="2.2" height="3.4" rx="0.7" transform="rotate(135 8 8)"/>
+    <rect x="6.9" y="0.9" width="2.2" height="3.4" rx="0.7" transform="rotate(180 8 8)"/>
+    <rect x="6.9" y="0.9" width="2.2" height="3.4" rx="0.7" transform="rotate(225 8 8)"/>
+    <rect x="6.9" y="0.9" width="2.2" height="3.4" rx="0.7" transform="rotate(270 8 8)"/>
+    <rect x="6.9" y="0.9" width="2.2" height="3.4" rx="0.7" transform="rotate(315 8 8)"/>
+  </g>
+</svg>

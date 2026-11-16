@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=SuperV
+Comment=Watches the clipboard and keeps its history
+Comment[de]=Beobachtet die Zwischenablage und merkt sich den Verlauf
+Exec=superv
+Icon=org.superv.Clipboard
+Terminal=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-GNOME-Autostart-Delay=2

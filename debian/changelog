@@ -1,0 +1,90 @@
+superv (1.2.0) unstable; urgency=medium
+
+  * Preview: Space shows the full text or the image large; text can be edited
+    before it is pasted (Ctrl+Enter). Sensitive entries stay masked until
+    "Show" is pressed.
+  * Formatted copies (text/html) are stored; a button next to the pin pastes
+    them with formatting. The "Paste with formatting by default" setting swaps
+    what Enter and the button do. Shift+Enter does the other one.
+  * Release notes in the AppStream data, so software centres show what changed.
+
+ -- Sacid Sezgin <noreply@localhost>  Mon, 16 Nov 2026 16:00:00 +0100
+
+superv (1.1.1) unstable; urgency=medium
+
+  * Show the panel only once it is in its final place (no flash at the wrong
+    position); on Wayland an invisible probe finds the current monitor first.
+  * Ctrl+1..9 waits until Ctrl is released before pasting, and also works for
+    entries that are scrolled out of view or not in the current tab.
+  * New tab "URLs" for web addresses.
+  * Names like Mobile_pos2 are no longer treated as passwords.
+
+ -- Sacid Sezgin <noreply@localhost>  Mon, 16 Nov 2026 14:00:00 +0100
+
+superv (1.1.0) unstable; urgency=medium
+
+  * Quick pick: Ctrl+1 to Ctrl+9 pastes the first to ninth entry; the numbers
+    are shown on the entries.
+  * Each entry shows when it was copied.
+  * The panel reopens where it was dragged to, remembered per monitor.
+  * Entries older than a configurable number of days are deleted (pinned
+    entries stay).
+  * Tabs: All, Text, Code, Sensitive, Images. Sensitive entries (passwords,
+    tokens, keys, IBANs, card numbers) are shown partly masked.
+  * Settings window (gear button in the panel header).
+
+ -- Sacid Sezgin <noreply@localhost>  Mon, 16 Nov 2026 12:00:00 +0100
+
+superv (1.0.7) unstable; urgency=medium
+
+  * Centre the version number in the panel header.
+
+ -- Sacid Sezgin <noreply@localhost>  Fri, 13 Nov 2026 19:00:00 +0100
+
+superv (1.0.6) unstable; urgency=medium
+
+  * Show the version number in the panel header instead of the author credit.
+
+ -- Sacid Sezgin <noreply@localhost>  Fri, 13 Nov 2026 18:30:00 +0100
+
+superv (1.0.5) unstable; urgency=medium
+
+  * Ship AppStream catalog data (linked to the package) so software centres
+    show the app as "SuperV" by Sacid Sezgin.
+  * Remove the grab cursor that was shown over the whole panel.
+
+ -- Sacid Sezgin <noreply@localhost>  Fri, 13 Nov 2026 18:00:00 +0100
+
+superv (1.0.4) unstable; urgency=medium
+
+  * Put the name "SuperV" and the author into the package synopsis, which is
+    the headline software centres show for a standalone .deb.
+
+ -- Sacid Sezgin <noreply@localhost>  Fri, 13 Nov 2026 17:30:00 +0100
+
+superv (1.0.3) unstable; urgency=medium
+
+  * Panel can be moved by dragging its header or footer.
+  * Add AppStream metadata so software centres show "SuperV" by Sacid Sezgin.
+
+ -- Sacid Sezgin <noreply@localhost>  Fri, 13 Nov 2026 17:00:00 +0100
+
+superv (1.0.2) unstable; urgency=medium
+
+  * Add author credit (Sacid Sezgin) to the panel, --version and package.
+
+ -- Sacid Sezgin <noreply@localhost>  Fri, 13 Nov 2026 16:00:00 +0100
+
+superv (1.0.1) unstable; urgency=medium
+
+  * Fix invisible selected entry on themes that colour selected list rows.
+  * Compact entry layout; action buttons show on hover.
+  * Open the panel on the monitor you are working on.
+
+ -- Sacid Sezgin <noreply@localhost>  Fri, 13 Nov 2026 15:00:00 +0100
+
+superv (1.0.0) unstable; urgency=medium
+
+  * First release.
+
+ -- Sacid Sezgin <noreply@localhost>  Fri, 13 Nov 2026 12:00:00 +0100
