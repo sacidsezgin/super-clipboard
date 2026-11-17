@@ -1,4 +1,4 @@
-# SuperV sends the paste shortcut through a virtual keyboard after an entry
+# Super Clipboard sends the paste shortcut through a virtual keyboard after an entry
 # is picked. This grants /dev/uinput to the user at the local seat (not to
 # remote sessions) - the same mechanism used for sound cards and webcams.
 KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput"

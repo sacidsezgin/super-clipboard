@@ -4,7 +4,7 @@ set -e
 # Stop running instances. After an upgrade the next Super+V press (or the
 # next login) starts the new version.
 if command -v pkill >/dev/null 2>&1; then
-    pkill -f '^/usr/bin/python3 /usr/bin/superv( |$)' 2>/dev/null || true
+    pkill -f '^/usr/bin/python3 /usr/bin/super-clipboard( |$)' 2>/dev/null || true
 fi
 
 exit 0

@@ -1,4 +1,17 @@
-superv (1.2.0) unstable; urgency=medium
+super-clipboard (1.3.0) unstable; urgency=medium
+
+  * Renamed the product from SuperV to Super Clipboard: package, command
+    (super-clipboard, super-clipboard-toggle), application ID
+    (org.super_clipboard.Clipboard), icons and the data/config folders
+    (~/.local/share/super-clipboard, ~/.config/super-clipboard).
+  * English is the default interface language; German is used when the system
+    language is German. Language detection now follows gettext rules
+    (LC_ALL, LC_MESSAGES, LANG, LANGUAGE preference list; C/POSIX = English).
+  * Documentation (README) is now in English.
+
+ -- Sacid Sezgin <noreply@localhost>  Mon, 16 Nov 2026 18:00:00 +0100
+
+superv (1.3.0) unstable; urgency=medium
 
   * Preview: Space shows the full text or the image large; text can be edited
     before it is pasted (Ctrl+Enter). Sensitive entries stay masked until

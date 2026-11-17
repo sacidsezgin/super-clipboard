@@ -1,4 +1,4 @@
-Package: superv
+Package: super-clipboard
 Version: @VERSION@
 Section: utils
 Priority: optional
@@ -7,9 +7,11 @@ Installed-Size: @SIZE@
 Depends: python3 (>= 3.8), python3-gi, gir1.2-gtk-3.0, gir1.2-gdkpixbuf-2.0, libglib2.0-bin, hicolor-icon-theme
 Recommends: xwayland, udev, kmod, appstream
 Suggests: xdotool
+Conflicts: superv
+Replaces: superv
 Maintainer: Sacid Sezgin <noreply@localhost>
-Description: SuperV - clipboard history on Super+V, by Sacid Sezgin
- SuperV keeps the last things you copied (text and images) and shows them
+Description: Super Clipboard - clipboard history on Super+V, by Sacid Sezgin
+ Super Clipboard keeps the last things you copied (text and images) and shows them
  in a small panel when you press Super+V. Picking an entry pastes it into
  the window you were working in. Entries can be pinned, searched and
  removed.

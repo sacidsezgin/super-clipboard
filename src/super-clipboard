@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
-"""SuperV - a clipboard history panel in the style of the Windows 11 Win+V flyout.
+"""Super Clipboard - a clipboard history panel in the style of the Windows 11 Win+V flyout.
 
 By Sacid Sezgin.
 
@@ -24,8 +24,8 @@ import time
 
 # The watcher has to see clipboard changes made in *other* windows. On a GNOME
 # Wayland session only X11 (XWayland) clients are told about those, so X11 is
-# preferred and native Wayland is the fallback. Override with SUPERV_GDK_BACKEND.
-os.environ["GDK_BACKEND"] = os.environ.get("SUPERV_GDK_BACKEND", "x11,wayland")
+# preferred and native Wayland is the fallback. Override with SUPER_CLIPBOARD_GDK_BACKEND.
+os.environ["GDK_BACKEND"] = os.environ.get("SUPER_CLIPBOARD_GDK_BACKEND", "x11,wayland")
 
 import warnings  # noqa: E402
 
@@ -44,16 +44,16 @@ try:
 except (ValueError, ImportError):
     GdkX11 = None
 
-APP_ID = "org.superv.Clipboard"
-APP_NAME = "SuperV"
-VERSION = "1.2.0"
+APP_ID = "org.super_clipboard.Clipboard"
+APP_NAME = "Super Clipboard"
+VERSION = "1.3.0"
 AUTHOR = "Sacid Sezgin"
-TOGGLE_COMMAND = "/usr/bin/superv-toggle"
+TOGGLE_COMMAND = "/usr/bin/super-clipboard-toggle"
 
-DATA_DIR = os.path.join(GLib.get_user_data_dir(), "superv")
+DATA_DIR = os.path.join(GLib.get_user_data_dir(), "super-clipboard")
 IMAGE_DIR = os.path.join(DATA_DIR, "images")
 HISTORY_FILE = os.path.join(DATA_DIR, "history.json")
-CONFIG_DIR = os.path.join(GLib.get_user_config_dir(), "superv")
+CONFIG_DIR = os.path.join(GLib.get_user_config_dir(), "super-clipboard")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
 HOTKEY_MARKER = os.path.join(CONFIG_DIR, "hotkey-installed")
 STATE_FILE = os.path.join(CONFIG_DIR, "state.json")
@@ -153,17 +153,40 @@ STRINGS = {
 }
 
 
+DEFAULT_LANGUAGE = "en"   # used for every system language that has no translation
+
+
+def _lang_code(value):
+    """'de_DE.UTF-8' -> 'de'; '' for unset, C and POSIX."""
+    code = value.strip().split(".")[0].split("@")[0].split("_")[0].lower()
+    return "" if code in ("c", "posix") else code
+
+
 def _pick_language():
-    for var in ("LC_ALL", "LC_MESSAGES", "LANGUAGE", "LANG"):
-        value = os.environ.get(var, "")
-        if value:
-            code = value.split(":")[0].split("_")[0].split(".")[0].lower()
-            return code if code in STRINGS else "en"
-    try:
-        code = (locale.getlocale()[0] or "en").split("_")[0].lower()
-    except (ValueError, TypeError):
-        code = "en"
-    return code if code in STRINGS else "en"
+    """Follow the system language: German if it is German, English otherwise.
+
+    Mirrors gettext: the locale comes from LC_ALL, LC_MESSAGES, LANG (the first
+    one that is set); LANGUAGE may list preferences ("pt:de") and the first
+    translated one wins. The C/POSIX locale always means the default language.
+    """
+    locale_value = ""
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        locale_value = os.environ.get(var, "")
+        if locale_value:
+            break
+    if not locale_value:
+        try:
+            locale_value = locale.getlocale()[0] or ""
+        except (ValueError, TypeError):
+            locale_value = ""
+    primary = _lang_code(locale_value)
+    if not primary:
+        return DEFAULT_LANGUAGE
+    for entry in os.environ.get("LANGUAGE", "").split(":"):
+        code = _lang_code(entry)
+        if code in STRINGS:
+            return code
+    return primary if primary in STRINGS else DEFAULT_LANGUAGE
 
 
 _LANG = _pick_language()
@@ -174,7 +197,7 @@ def _(key):
 
 
 def log(*parts):
-    print("superv:", *parts, file=sys.stderr, flush=True)
+    print("super-clipboard:", *parts, file=sys.stderr, flush=True)
 
 
 # --------------------------------------------------------------- config ----
@@ -366,7 +389,7 @@ _SHELL_COMMANDS = {
     "ssh", "scp", "rsync", "docker", "kubectl", "npm", "npx", "yarn", "pnpm", "node", "pip", "pip3",
     "python", "python3", "php", "composer", "wp", "mysql", "mariadb", "mysqldump", "mariadb-dump",
     "systemctl", "journalctl", "service", "export", "echo", "make", "bash", "sh", "source", "kill",
-    "pkill", "killall", "ps", "df", "du", "ln", "touch", "nano", "vim", "gsettings", "dconf", "superv",
+    "pkill", "killall", "ps", "df", "du", "ln", "touch", "nano", "vim", "gsettings", "dconf", "super-clipboard",
 }
 # Commands that are not also everyday words: "killall firefox" needs no option
 # flag to count as a command, "find the file" does.
@@ -374,7 +397,7 @@ _SHELL_UNMISTAKABLE = {
     "sudo", "apt", "apt-get", "dpkg", "flatpak", "killall", "pkill", "systemctl", "journalctl",
     "chmod", "chown", "mkdir", "npm", "npx", "pnpm", "pip", "pip3", "wget", "curl", "ssh", "scp",
     "rsync", "docker", "kubectl", "gsettings", "dconf", "mysqldump", "mariadb-dump", "composer",
-    "unzip", "grep", "sed", "awk", "superv",
+    "unzip", "grep", "sed", "awk", "super-clipboard",
 }
 _CODE_LINE = re.compile(r"""
       ^\s*(?:def|class|function|import|from|const|let|var|return|if|elif|else|for|foreach|while
@@ -754,7 +777,7 @@ class VirtualKeyboard:
             for code in self.KEYS.values():
                 fcntl.ioctl(fd, self.UI_SET_KEYBIT, code)
             setup = struct.pack("HHHH80sI", self.BUS_VIRTUAL, 0x5356, 0x0001, 1,
-                                b"SuperV virtual keyboard", 0)
+                                b"Super Clipboard virtual keyboard", 0)
             fcntl.ioctl(fd, self.UI_DEV_SETUP, setup)
             fcntl.ioctl(fd, self.UI_DEV_CREATE)
         except OSError as err:
@@ -811,7 +834,7 @@ def session_is_wayland():
 
 MEDIA_SCHEMA = "org.gnome.settings-daemon.plugins.media-keys"
 CUSTOM_SCHEMA = MEDIA_SCHEMA + ".custom-keybinding"
-CUSTOM_PATH = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/superv/"
+CUSTOM_PATH = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/super-clipboard/"
 SHELL_SCHEMA = "org.gnome.shell.keybindings"
 SHELL_KEY = "toggle-message-tray"
 XFCE_PROPERTY = "/commands/custom/<Super>v"
@@ -835,7 +858,7 @@ def setup_hotkey():
     if not (_schema(MEDIA_SCHEMA) and _schema(CUSTOM_SCHEMA)):
         return ""
     binding = Gio.Settings.new_with_path(CUSTOM_SCHEMA, CUSTOM_PATH)
-    binding.set_string("name", "SuperV Clipboard History")
+    binding.set_string("name", "Super Clipboard History")
     binding.set_string("command", TOGGLE_COMMAND)
     binding.set_string("binding", "<Super>v")
     media = Gio.Settings.new(MEDIA_SCHEMA)
@@ -879,24 +902,24 @@ def remove_hotkey():
 # ------------------------------------------------------------------- UI ----
 
 CSS = b"""
-.superv-window { background-color: transparent; }
-.superv-panel {
+.super-clipboard-window { background-color: transparent; }
+.super-clipboard-panel {
     background-color: @theme_bg_color;
     border: 1px solid alpha(@theme_fg_color, 0.16);
     border-radius: 12px;
     box-shadow: 0 6px 18px alpha(black, 0.32);
 }
-.superv-panel.superv-solid { border-radius: 0; box-shadow: none; }
-.superv-title { font-weight: bold; font-size: 1.05em; }
-.superv-hint { font-size: 0.82em; opacity: 0.6; }
-.superv-empty { opacity: 0.65; }
-.superv-scroller, .superv-scroller viewport { background-color: transparent; }
+.super-clipboard-panel.super-clipboard-solid { border-radius: 0; box-shadow: none; }
+.super-clipboard-title { font-weight: bold; font-size: 1.05em; }
+.super-clipboard-hint { font-size: 0.82em; opacity: 0.6; }
+.super-clipboard-empty { opacity: 0.65; }
+.super-clipboard-scroller, .super-clipboard-scroller viewport { background-color: transparent; }
 
 /* The list rows are only containers: selection / hover is drawn on the card.
    ID selectors keep themes from painting their own selection colour over it. */
-#superv-list, #superv-list > row, #superv-list > row:hover, #superv-list > row:active,
-#superv-list > row:selected, #superv-list > row:selected:hover,
-#superv-list > row:selected:focus, #superv-list > row:focus {
+#super-clipboard-list, #super-clipboard-list > row, #super-clipboard-list > row:hover, #super-clipboard-list > row:active,
+#super-clipboard-list > row:selected, #super-clipboard-list > row:selected:hover,
+#super-clipboard-list > row:selected:focus, #super-clipboard-list > row:focus {
     background-color: transparent;
     background-image: none;
     border: none;
@@ -904,61 +927,61 @@ CSS = b"""
     outline-width: 0;
     color: @theme_fg_color;
 }
-#superv-list > row { padding: 3px 12px; }
-#superv-list > row label, #superv-list > row:selected label,
-#superv-list > row button, #superv-list > row:selected button { color: @theme_fg_color; }
+#super-clipboard-list > row { padding: 3px 12px; }
+#super-clipboard-list > row label, #super-clipboard-list > row:selected label,
+#super-clipboard-list > row button, #super-clipboard-list > row:selected button { color: @theme_fg_color; }
 
-.superv-card {
+.super-clipboard-card {
     background-color: alpha(@theme_fg_color, 0.07);
     border: 1px solid alpha(@theme_fg_color, 0.08);
     border-radius: 8px;
     padding: 8px 6px 8px 9px;
 }
-#superv-list > row:hover .superv-card { background-color: alpha(@theme_fg_color, 0.11); }
-#superv-list > row:selected .superv-card {
+#super-clipboard-list > row:hover .super-clipboard-card { background-color: alpha(@theme_fg_color, 0.11); }
+#super-clipboard-list > row:selected .super-clipboard-card {
     background-color: alpha(@theme_fg_color, 0.13);
     border-color: @theme_selected_bg_color;
     box-shadow: inset 0 0 0 1px @theme_selected_bg_color;
 }
-.superv-card button {
+.super-clipboard-card button {
     min-width: 24px; min-height: 24px; padding: 0; margin: 0;
     background-image: none; background-color: transparent; box-shadow: none;
     opacity: 0;
 }
-#superv-list > row:hover .superv-card button,
-#superv-list > row:selected .superv-card button { opacity: 0.65; }
-#superv-list > row .superv-card button:hover {
+#super-clipboard-list > row:hover .super-clipboard-card button,
+#super-clipboard-list > row:selected .super-clipboard-card button { opacity: 0.65; }
+#super-clipboard-list > row .super-clipboard-card button:hover {
     opacity: 1; background-color: alpha(@theme_fg_color, 0.14);
 }
-#superv-list > row .superv-card button.superv-pinned,
-#superv-list > row:selected .superv-card button.superv-pinned {
+#super-clipboard-list > row .super-clipboard-card button.super-clipboard-pinned,
+#super-clipboard-list > row:selected .super-clipboard-card button.super-clipboard-pinned {
     opacity: 1; color: @theme_selected_bg_color;
 }
-.superv-card image.superv-thumb { border-radius: 4px; }
-.superv-badge { font-size: 0.78em; opacity: 0.55; min-width: 10px; margin-top: 2px; }
-.superv-meta { font-size: 0.78em; opacity: 0.55; }
+.super-clipboard-card image.super-clipboard-thumb { border-radius: 4px; }
+.super-clipboard-badge { font-size: 0.78em; opacity: 0.55; min-width: 10px; margin-top: 2px; }
+.super-clipboard-meta { font-size: 0.78em; opacity: 0.55; }
 
-.superv-tab {
+.super-clipboard-tab {
     min-height: 0; min-width: 0; padding: 3px 9px;
     border: 1px solid transparent; border-radius: 13px;
     background-image: none; background-color: transparent; box-shadow: none; text-shadow: none;
     font-size: 0.9em;
 }
-.superv-tab, .superv-tab label { color: alpha(@theme_fg_color, 0.72); }
-.superv-tab:hover { background-color: alpha(@theme_fg_color, 0.08); }
-.superv-tab:checked {
+.super-clipboard-tab, .super-clipboard-tab label { color: alpha(@theme_fg_color, 0.72); }
+.super-clipboard-tab:hover { background-color: alpha(@theme_fg_color, 0.08); }
+.super-clipboard-tab:checked {
     background-color: alpha(@theme_fg_color, 0.13);
     border-color: @theme_selected_bg_color;
 }
-.superv-tab:checked, .superv-tab:checked label { color: @theme_fg_color; }
-.superv-previewscroll {
+.super-clipboard-tab:checked, .super-clipboard-tab:checked label { color: @theme_fg_color; }
+.super-clipboard-previewscroll {
     border-radius: 8px; border: 1px solid alpha(@theme_fg_color, 0.08);
     background-color: alpha(@theme_fg_color, 0.05);
 }
-.superv-previewscroll viewport { background-color: transparent; }
-.superv-previewtext, .superv-previewtext text { background-color: transparent; color: @theme_fg_color; }
-.superv-gear { min-width: 28px; min-height: 28px; padding: 0; opacity: 0.7; }
-.superv-gear:hover { opacity: 1; }
+.super-clipboard-previewscroll viewport { background-color: transparent; }
+.super-clipboard-previewtext, .super-clipboard-previewtext text { background-color: transparent; color: @theme_fg_color; }
+.super-clipboard-gear { min-width: 28px; min-height: 28px; padding: 0; opacity: 0.7; }
+.super-clipboard-gear:hover { opacity: 1; }
 """
 
 
@@ -992,7 +1015,7 @@ class Panel(Gtk.Window):
         self.set_skip_pager_hint(True)
         self.set_icon_name(APP_ID)
         self.stick()
-        self.get_style_context().add_class("superv-window")
+        self.get_style_context().add_class("super-clipboard-window")
 
         screen = self.get_screen()
         visual = screen.get_rgba_visual()
@@ -1003,9 +1026,9 @@ class Panel(Gtk.Window):
         self.pad = self.SHADOW if self.translucent else 0
 
         panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        panel.get_style_context().add_class("superv-panel")
+        panel.get_style_context().add_class("super-clipboard-panel")
         if not self.translucent:
-            panel.get_style_context().add_class("superv-solid")
+            panel.get_style_context().add_class("super-clipboard-solid")
         panel.set_size_request(self.WIDTH, self.HEIGHT)
         for side in ("top", "bottom", "start", "end"):
             getattr(panel, "set_margin_" + side)(self.pad)
@@ -1016,24 +1039,24 @@ class Panel(Gtk.Window):
         header.set_margin_start(16)
         header.set_margin_end(10)
         title = Gtk.Label(label=_("title"), xalign=0)
-        title.get_style_context().add_class("superv-title")
+        title.get_style_context().add_class("super-clipboard-title")
         header.pack_start(title, False, False, 0)
         version = Gtk.Label(label="v" + VERSION)
         version.set_xalign(0.5)
         version.set_margin_end(6)   # offsets the header's uneven side margins
         version.set_valign(Gtk.Align.CENTER)
-        version.get_style_context().add_class("superv-hint")
+        version.get_style_context().add_class("super-clipboard-hint")
         header.set_center_widget(version)   # centred on the whole panel width
         self.clear_button = Gtk.Button(label=_("clear"))
         self.clear_button.set_relief(Gtk.ReliefStyle.NONE)
         self.clear_button.set_can_focus(False)
         self.clear_button.connect("clicked", lambda *_a: self.app.store.clear_unpinned())
         header.pack_end(self.clear_button, False, False, 0)
-        gear = Gtk.Button.new_from_icon_name("superv-settings-symbolic", Gtk.IconSize.MENU)
+        gear = Gtk.Button.new_from_icon_name("super-clipboard-settings-symbolic", Gtk.IconSize.MENU)
         gear.set_relief(Gtk.ReliefStyle.NONE)
         gear.set_can_focus(False)
         gear.set_tooltip_text(_("settings"))
-        gear.get_style_context().add_class("superv-gear")
+        gear.get_style_context().add_class("super-clipboard-gear")
         gear.connect("clicked", lambda *_a: self.app.open_settings())
         self.gear = gear
         header.pack_end(gear, False, False, 0)
@@ -1054,7 +1077,7 @@ class Panel(Gtk.Window):
             button.set_mode(False)             # draw as a button, not as a radio dot
             button.set_relief(Gtk.ReliefStyle.NONE)
             button.set_can_focus(False)
-            button.get_style_context().add_class("superv-tab")
+            button.get_style_context().add_class("super-clipboard-tab")
             button.connect("toggled", self._on_tab_toggled, tab)
             tabbar.pack_start(button, False, False, 0)
             self.tab_buttons[tab] = button
@@ -1072,14 +1095,14 @@ class Panel(Gtk.Window):
 
         self.scroller = Gtk.ScrolledWindow()
         self.scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.scroller.get_style_context().add_class("superv-scroller")
+        self.scroller.get_style_context().add_class("super-clipboard-scroller")
         self.listbox = Gtk.ListBox()
         self.listbox.set_selection_mode(Gtk.SelectionMode.SINGLE)
         self.listbox.set_activate_on_single_click(True)
-        self.listbox.set_name("superv-list")
+        self.listbox.set_name("super-clipboard-list")
         self.listbox.connect("row-activated", lambda _box, row: self.app.paste_item(row.item_id))
         self.placeholder = Gtk.Label(justify=Gtk.Justification.CENTER, wrap=True)
-        self.placeholder.get_style_context().add_class("superv-empty")
+        self.placeholder.get_style_context().add_class("super-clipboard-empty")
         self.placeholder.set_margin_start(24)
         self.placeholder.set_margin_end(24)
         self.placeholder.show()
@@ -1094,7 +1117,7 @@ class Panel(Gtk.Window):
 
         self.hint = Gtk.Label(xalign=0.5)
         self.hint.set_ellipsize(Pango.EllipsizeMode.END)
-        self.hint.get_style_context().add_class("superv-hint")
+        self.hint.get_style_context().add_class("super-clipboard-hint")
         self.hint.set_margin_top(6)
         self.hint.set_margin_bottom(9)
         self.hint.set_margin_start(10)
@@ -1126,13 +1149,13 @@ class Panel(Gtk.Window):
         page.set_margin_bottom(2)
         self.preview_meta = Gtk.Label(xalign=0)
         self.preview_meta.set_ellipsize(Pango.EllipsizeMode.END)
-        self.preview_meta.get_style_context().add_class("superv-hint")
+        self.preview_meta.get_style_context().add_class("super-clipboard-hint")
         page.pack_start(self.preview_meta, False, False, 0)
         self.preview_scroll = Gtk.ScrolledWindow()
-        self.preview_scroll.get_style_context().add_class("superv-previewscroll")
+        self.preview_scroll.get_style_context().add_class("super-clipboard-previewscroll")
         page.pack_start(self.preview_scroll, True, True, 0)
         self.preview_note = Gtk.Label(xalign=0, wrap=True)
-        self.preview_note.get_style_context().add_class("superv-hint")
+        self.preview_note.get_style_context().add_class("super-clipboard-hint")
         page.pack_start(self.preview_note, False, False, 0)
         buttons = Gtk.Box(spacing=8)
         back = Gtk.Button(label=_("back"))
@@ -1197,7 +1220,7 @@ class Panel(Gtk.Window):
             view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
             for side in ("left", "right", "top", "bottom"):
                 getattr(view, "set_%s_margin" % side)(10 if side in ("left", "right") else 8)
-            view.get_style_context().add_class("superv-previewtext")
+            view.get_style_context().add_class("super-clipboard-previewtext")
             if item.category == "code":
                 view.set_monospace(True)
             self.preview_view = view
@@ -1359,18 +1382,18 @@ class Panel(Gtk.Window):
         row = Gtk.ListBoxRow()
         row.item_id = item.id
         card = Gtk.Box(spacing=7)
-        card.get_style_context().add_class("superv-card")
+        card.get_style_context().add_class("super-clipboard-card")
 
         badge = Gtk.Label(label=str(number) if number <= 9 else "")
         badge.set_valign(Gtk.Align.START)
-        badge.get_style_context().add_class("superv-badge")
+        badge.get_style_context().add_class("super-clipboard-badge")
         card.pack_start(badge, False, False, 0)
 
         if item.kind == "image":
             thumb = self._thumbnail(item)
             if thumb is not None:
                 content = Gtk.Image.new_from_pixbuf(thumb)
-                content.get_style_context().add_class("superv-thumb")
+                content.get_style_context().add_class("super-clipboard-thumb")
             else:
                 content = Gtk.Label(label=_("image"))
             content.set_halign(Gtk.Align.START)
@@ -1387,7 +1410,7 @@ class Panel(Gtk.Window):
             details.append(_("cat_rich"))
         details.append(relative_time(item.ts))
         meta = Gtk.Label(label="  ·  ".join(part for part in details if part), xalign=0)
-        meta.get_style_context().add_class("superv-meta")
+        meta.get_style_context().add_class("super-clipboard-meta")
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         body.pack_start(content, True, True, 0)
         body.pack_start(meta, False, False, 0)
@@ -1398,15 +1421,15 @@ class Panel(Gtk.Window):
         if item.kind == "text" and item.html:
             plain_default = not self.app.cfg["paste_formatted"]
             buttons.pack_start(self._icon_button(
-                "superv-format-symbolic", _("fmt_with") if plain_default else _("fmt_without"),
+                "super-clipboard-format-symbolic", _("fmt_with") if plain_default else _("fmt_without"),
                 lambda item_id: self.app.paste_item(item_id, formatted=plain_default), item.id),
                 False, False, 0)
-        pin = self._icon_button("superv-pin-symbolic", _("unpin") if item.pinned else _("pin"),
+        pin = self._icon_button("super-clipboard-pin-symbolic", _("unpin") if item.pinned else _("pin"),
                                 self.app.store.toggle_pin, item.id)
         if item.pinned:
-            pin.get_style_context().add_class("superv-pinned")
+            pin.get_style_context().add_class("super-clipboard-pinned")
         buttons.pack_start(pin, False, False, 0)
-        buttons.pack_start(self._icon_button("superv-delete-symbolic", _("delete"),
+        buttons.pack_start(self._icon_button("super-clipboard-delete-symbolic", _("delete"),
                                              self.app.store.remove, item.id), False, False, 0)
         card.pack_end(buttons, False, False, 0)
         row.add(card)
@@ -1861,7 +1884,7 @@ class SettingsWindow(Gtk.Window):
 
 # ----------------------------------------------------------- application ----
 
-class SuperV(Gtk.Application):
+class SuperClipboard(Gtk.Application):
     TEXT_TARGETS = {"UTF8_STRING", "STRING", "TEXT", "COMPOUND_TEXT", "text/plain",
                     "text/plain;charset=utf-8"}
     SECRET_TARGET = "x-kde-passwordManagerHint"
@@ -1903,7 +1926,7 @@ class SuperV(Gtk.Application):
             return 0
         if options.contains("setup-hotkey"):
             result = setup_hotkey()
-            print("Super+V is now bound to SuperV." if result else
+            print("Super+V is now bound to Super Clipboard." if result else
                   "No supported desktop found - bind '%s' to Super+V manually." % TOGGLE_COMMAND)
             return 0 if result else 1
         if options.contains("remove-hotkey"):
@@ -2155,7 +2178,7 @@ class SuperV(Gtk.Application):
 
 
 def main():
-    return SuperV().run(sys.argv)
+    return SuperClipboard().run(sys.argv)
 
 
 if __name__ == "__main__":

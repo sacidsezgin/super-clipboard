@@ -1,22 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>org.superv.Clipboard</id>
+  <id>org.super_clipboard.Clipboard</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>MIT</project_license>
-  <name>SuperV</name>
+  <name>Super Clipboard</name>
   <developer_name>Sacid Sezgin</developer_name>
   <summary>Clipboard history on Super+V, by Sacid Sezgin</summary>
   <summary xml:lang="de">Zwischenablageverlauf auf Super+V, von Sacid Sezgin</summary>
   <description>
-    <p>SuperV keeps the last things you copied (text and images) and shows them in a small panel when you press Super+V, in the style of the Windows 11 clipboard history. Picking an entry pastes it into the window you were working in. Entries can be pinned, searched and removed.</p>
+    <p>Super Clipboard keeps the last things you copied (text and images) and shows them in a small panel when you press Super+V, in the style of the Windows 11 clipboard history. Picking an entry pastes it into the window you were working in. Entries can be pinned, searched and removed.</p>
     <p>Developed by Sacid Sezgin.</p>
-    <p xml:lang="de">SuperV merkt sich das zuletzt Kopierte (Text und Bilder) und zeigt es mit Super+V in einem kleinen Fenster an, ähnlich dem Zwischenablageverlauf von Windows 11. Ein Klick auf einen Eintrag fügt ihn in das Fenster ein, in dem Sie gearbeitet haben. Einträge lassen sich anheften, durchsuchen und löschen.</p>
+    <p xml:lang="de">Super Clipboard merkt sich das zuletzt Kopierte (Text und Bilder) und zeigt es mit Super+V in einem kleinen Fenster an, ähnlich dem Zwischenablageverlauf von Windows 11. Ein Klick auf einen Eintrag fügt ihn in das Fenster ein, in dem Sie gearbeitet haben. Einträge lassen sich anheften, durchsuchen und löschen.</p>
     <p xml:lang="de">Entwickelt von Sacid Sezgin.</p>
   </description>
-  <launchable type="desktop-id">org.superv.Clipboard.desktop</launchable>
-  <icon type="stock">org.superv.Clipboard</icon>
+  <launchable type="desktop-id">org.super_clipboard.Clipboard.desktop</launchable>
+  <icon type="stock">org.super_clipboard.Clipboard</icon>
   <provides>
-    <binary>superv</binary>
+    <binary>super-clipboard</binary>
   </provides>
   <keywords>
     <keyword>clipboard</keyword>
@@ -30,6 +30,12 @@
   <content_rating type="oars-1.1"/>
   <releases>
     <release version="@VERSION@" date="2026-11-16">
+      <description>
+        <p>English is now the default interface language; German is used when the system language is German.</p>
+        <p xml:lang="de">Englisch ist jetzt die Standardsprache der Oberfläche; Deutsch wird verwendet, wenn die Systemsprache Deutsch ist.</p>
+      </description>
+    </release>
+    <release version="1.3.0" date="2026-11-16">
         <description>
           <p>New: preview with editing (Space), paste with or without formatting, URLs tab, Ctrl+1-9 quick pick, per-monitor position memory, automatic expiry and a settings window.</p>
           <p xml:lang="de">Neu: Vorschau mit Bearbeiten (Leertaste), Einfügen mit oder ohne Formatierung, URL-Reiter, Schnellwahl mit Strg+1-9, Fensterposition pro Monitor, automatisches Löschen und ein Einstellungsfenster.</p>

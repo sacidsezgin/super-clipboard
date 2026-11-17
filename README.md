@@ -1,307 +1,311 @@
-# SuperV – Dokumentation
+# Super Clipboard – Documentation
 
-Nov 16, 2026 · @Sacid
+Nov 16, 2026 · @sacidsezgin
 
-## Überblick
+## Overview
 
-SuperV zeigt mit Super+V den Verlauf der Zwischenablage an, so wie Win+V unter Windows 11. Es läuft unter Zorin OS und anderen Ubuntu-Desktops (GNOME mit Wayland oder X11, Xfce) und kommt als einzelnes .deb-Paket.
+Super Clipboard shows your clipboard history when you press Super+V, just like Win+V on Windows 11. It runs on Zorin OS and other Ubuntu desktops (GNOME on Wayland or X11, Xfce) and comes as a single .deb package.
 
-Diese Dokumentation beschreibt Version 1.2.0 von Sacid Sezgin. Das Programm ist in Python mit GTK 3 geschrieben, die Lizenz ist MIT.
+This documentation describes version 1.3.0 by Sacid Sezgin. The program is written in Python with GTK 3 and licensed under the MIT license.
 
-- Merkt sich Text und Bilder, standardmäßig die letzten 50 Einträge.
-- Fügt den gewählten Eintrag direkt in das Fenster ein, in dem Sie gerade arbeiten.
-- Sortiert Texte in Reiter (Text, Code, URLs, Sensibel); Bilder haben einen eigenen Reiter.
-- Zensiert sensible Daten wie Passwörter, Tokens und IBANs in der Anzeige.
-- Zeigt bei jedem Eintrag, wann er kopiert wurde, und bietet Schnellwahl mit Strg+1 bis Strg+9.
-- Hat eine Vorschau mit Bearbeiten und kann mit oder ohne Formatierung einfügen.
-- Löscht alte Einträge nach einer einstellbaren Zahl von Tagen; angeheftete bleiben.
-- Merkt sich die Fensterposition für jeden Monitor einzeln.
-- Spricht Deutsch und Englisch, je nach Systemsprache.
+- Remembers text and images, the last 50 entries by default.
+- Pastes the chosen entry straight into the window you are working in.
+- Sorts text into tabs (Text, Code, URLs, Sensitive); images get their own tab.
+- Masks sensitive data such as passwords, tokens and IBANs in the display.
+- Shows when each entry was copied and offers quick selection with Ctrl+1 to Ctrl+9.
+- Has a preview with editing and can paste with or without formatting.
+- Deletes old entries after a configurable number of days; pinned entries stay.
+- Remembers the window position for each monitor separately.
+- Speaks English and German. English is the default; German is used when the system language is German.
 
-## Installation und Start
+## Installation and first start
 
-Ein Befehl installiert SuperV samt Abhängigkeiten; danach genügt ein erster Start, damit Super+V funktioniert.
+One command installs Super Clipboard with its dependencies; after that a first start is all it takes for Super+V to work.
 
 ```
-sudo apt install ./superv_1.2.0_all.deb
-superv --show
+sudo apt install ./super-clipboard_1.3.0_all.deb
+super-clipboard --show
 ```
 
-Statt `superv --show` können Sie auch „SuperV“ im Anwendungsmenü öffnen. Bei der ersten Ausführung trägt SuperV Super+V als Tastenkürzel ein und läuft danach im Hintergrund. Ab dem nächsten Login startet es von selbst, mit zwei Sekunden Verzögerung.
+Instead of `super-clipboard --show` you can also open "Super Clipboard" from the application menu. On the first run Super Clipboard registers Super+V as a keyboard shortcut and then keeps running in the background. From the next login on it starts by itself, with a two-second delay.
 
-**Abhängigkeiten.** apt installiert diese Pakete automatisch mit:
+**Dependencies.** apt installs these packages automatically:
 
-- python3 (ab 3.8), python3-gi, gir1.2-gtk-3.0, gir1.2-gdkpixbuf-2.0
+- python3 (3.8 or newer), python3-gi, gir1.2-gtk-3.0, gir1.2-gdkpixbuf-2.0
 - libglib2.0-bin, hicolor-icon-theme
-- empfohlen: xwayland, udev, kmod, appstream; optional: xdotool
+- recommended: xwayland, udev, kmod, appstream; optional: xdotool
 
-**Das Tastenkürzel.** Unter GNOME wird Super+V als eigenes Kürzel „SuperV Clipboard History“ angelegt. GNOMEs eigene Belegung von Super+V (Benachrichtigungsliste) wird freigegeben; Super+M öffnet sie weiterhin. Unter Xfce trägt SuperV das Kürzel über `xfconf` ein. Tut Super+V nichts, hilft `superv --setup-hotkey`.
+**The keyboard shortcut.** On GNOME, Super+V is created as a custom shortcut named "Super Clipboard History". GNOME's own binding of Super+V (notification list) is released; Super+M still opens it. On Xfce, Super Clipboard registers the shortcut through `xfconf`. If Super+V does nothing, run `super-clipboard --setup-hotkey`.
 
-**Zugriff auf /dev/uinput.** SuperV schickt die Einfügetaste über eine virtuelle Tastatur. Dafür installiert das Paket eine udev-Regel, die /dev/uinput dem lokal angemeldeten Benutzer freigibt, und lädt das Modul `uinput`. Das heißt auch: Jedes Programm, das unter Ihrem Benutzer läuft, kann damit Tastendrücke erzeugen. Nach der Installation einmal ab- und wieder anmelden, falls das Einfügen nicht gleich klappt.
+**Access to /dev/uinput.** Super Clipboard sends the paste key through a virtual keyboard. For this the package installs a udev rule that gives the locally logged-in user access to /dev/uinput, and loads the `uinput` module. This also means that any program running under your user can generate key presses. After installing, log out and back in once if pasting does not work right away.
 
-## Bedienung
+## Usage
 
-Alles lässt sich mit der Tastatur erledigen; die Maus geht parallel. Das Fenster schließt sich, sobald es den Fokus verliert.
+Everything can be done with the keyboard; the mouse works alongside. The window closes as soon as it loses focus.
 
-| Taste oder Aktion | Wirkung |
+| Key or action | Effect |
 | --- | --- |
-| Super+V | Fenster öffnen oder schließen |
-| Pfeil hoch / runter | Eintrag wählen |
-| Bild hoch / runter | vier Einträge weiter springen |
-| Enter oder Klick auf den Eintrag | Eintrag einfügen (mit oder ohne Formatierung, je nach Einstellung) |
-| Umschalt+Enter | Eintrag mit dem jeweils anderen Format einfügen |
-| Strg+1 bis Strg+9 | ersten bis neunten Eintrag der Liste einfügen |
-| Leertaste | Vorschau des gewählten Eintrags (nur bei leerem Suchfeld) |
-| Tippen | Suche in den Texten; die Reiter bleiben aktiv |
-| Entf | gewählten Eintrag löschen (nur bei leerem Suchfeld) |
-| Strg+P | Eintrag anheften oder lösen |
-| Pfeil links / rechts | Reiter wechseln (nur bei leerem Suchfeld) |
-| Strg+Tab | nächster Reiter; mit Umschalt rückwärts |
-| Esc | Suchtext löschen, danach Fenster schließen; in der Vorschau zurück zur Liste |
-| Kopfzeile oder Fußzeile ziehen | Fenster verschieben |
+| Super+V | open or close the window |
+| Up / Down arrow | select an entry |
+| Page Up / Page Down | jump four entries |
+| Enter or click on the entry | paste the entry (with or without formatting, depending on the setting) |
+| Shift+Enter | paste the entry in the respective other format |
+| Ctrl+1 to Ctrl+9 | paste the first to ninth entry of the list |
+| Space | preview of the selected entry (only when the search field is empty) |
+| Typing | search in the texts; the tabs stay active |
+| Del | delete the selected entry (only when the search field is empty) |
+| Ctrl+P | pin or unpin the entry |
+| Left / Right arrow | switch tab (only when the search field is empty) |
+| Ctrl+Tab | next tab; with Shift backwards |
+| Esc | clear the search text, then close the window; in the preview, back to the list |
+| Drag the header or footer | move the window |
 
-**Strg+Zahl im Detail.** Gezählt wird in der Liste, die gerade angezeigt wird, auch bei Einträgen außerhalb des sichtbaren Bereichs. Zeigt die Liste weniger Einträge als die Zahl (anderer Reiter, Suche), zählt der gesamte Verlauf. Eingefügt wird erst, wenn Sie Strg loslassen.
+**Ctrl+number in detail.** Counting happens in the list that is currently shown, including entries outside the visible area. If the list shows fewer entries than the number (other tab, search), the whole history is counted. The paste only happens when you release Ctrl.
 
-**Mit der Maus.** Fährt der Zeiger über einen Eintrag, erscheinen rechts Knöpfe: Formatierung (nur bei formatierten Einträgen), Anheften, Löschen. „Alle löschen“ entfernt alle Einträge, die nicht angeheftet sind. Das Zahnrad öffnet die Einstellungen. Nicht angeheftete Einträge werden von neueren verdrängt, sobald die Höchstzahl erreicht ist; angeheftete bleiben und zählen nicht mit.
+**With the mouse.** When the pointer is over an entry, buttons appear on the right: formatting (only for formatted entries), pin, delete. "Clear all" removes all entries that are not pinned. The gear opens the settings. Unpinned entries are pushed out by newer ones once the maximum number is reached; pinned entries stay and do not count.
 
-## Reiter und sensible Daten
+## Tabs and sensitive data
 
-Jeder Text landet in genau einem Reiter, und Treffer für sensible Daten werden in der Liste teilweise unkenntlich gemacht. Die Einsortierung beruht auf Mustern; sie kann sich irren, in beide Richtungen.
+Every text ends up in exactly one tab, and matches for sensitive data are partly masked in the list. The sorting is based on patterns; it can be wrong, in both directions.
 
-| Reiter | Was dort landet |
+| Tab | What ends up there |
 | --- | --- |
-| Alle | alles, auch Bilder |
-| Text | normaler Text, der in keine andere Gruppe passt |
-| Code | Shell-Befehle, SQL, PHP, JavaScript, CSS, HTML/XML, JSON und ähnlich aufgebauter Text |
-| URLs | eine oder mehrere Web-Adressen (http, https, ftp, file, www), eine pro Zeile und sonst nichts |
-| Sensibel | Texte, in denen ein Geheimnis erkannt wurde |
-| Bilder | kopierte Bilder |
+| All | everything, including images |
+| Text | ordinary text that fits no other group |
+| Code | shell commands, SQL, PHP, JavaScript, CSS, HTML/XML, JSON and similarly structured text |
+| URLs | one or more web addresses (http, https, ftp, file, www), one per line and nothing else |
+| Sensitive | texts in which a secret was detected |
+| Images | copied images |
 
-Fällt ein Text in mehrere Gruppen, gilt die Reihenfolge Sensibel, URLs, Code, Text. Ein Satz, in dem eine Adresse vorkommt, bleibt Text. Zu jedem Eintrag steht unter dem Text die Gruppe (außer bei „Text“), „formatiert“ falls er Formatierung trägt, und die Zeit des Kopierens.
+If a text falls into several groups, the order is Sensitive, URLs, Code, Text. A sentence that contains an address stays Text. Below the text of each entry you see its group (except for "Text"), "formatted" if it carries formatting, and the time it was copied.
 
-**Was als sensibel gilt.**
+**What counts as sensitive.**
 
-- Passwörter und Schlüssel in der Form `passwort: wert` oder `DB_PASSWORD=wert` (auch password, secret, token, api key, access key und Verwandte) sowie `define('DB_PASSWORD', '…')`
-- Zugangsdaten in Adressen, etwa `mysql://benutzer:passwort@host`
-- API-Tokens von GitHub, GitLab, Slack, AWS, Google und mit `sk-` beginnende Schlüssel; JSON Web Tokens
-- private Schlüssel im PEM-Format
-- IBANs mit gültiger Prüfziffer und Kartennummern mit gültiger Luhn-Prüfsumme
-- einzelne Zeichenketten, die wie ein Passwort aussehen: 8 bis 72 Zeichen mit Groß- und Kleinbuchstaben, Ziffer und Sonderzeichen, oder lange Zufallsschlüssel ab 24 Zeichen
+- Passwords and keys in the form `password: value` or `DB_PASSWORD=value` (also passwort, secret, token, api key, access key and related) as well as `define('DB_PASSWORD', '…')`
+- Credentials in addresses, for example `mysql://user:password@host`
+- API tokens from GitHub, GitLab, Slack, AWS, Google and keys starting with `sk-`; JSON Web Tokens
+- private keys in PEM format
+- IBANs with a valid check digit and card numbers with a valid Luhn checksum
+- single strings that look like a password: 8 to 72 characters with upper and lower case letters, a digit and a special character, or long random keys of 24 characters or more
 
-Bei der letzten Regel zählen `_`, `-` und `.` nicht als Sonderzeichen. Namen wie `Mobile_pos2` oder `Report_v2.docx` bleiben deshalb normaler Text. E-Mail-Adressen, Telefonnummern und Namen gelten nicht als sensibel. Untersucht werden nur die ersten 20.000 Zeichen eines Textes.
+For the last rule, `_`, `-` and `.` do not count as special characters. Names such as `Mobile_pos2` or `Report_v2.docx` therefore stay ordinary text. Email addresses, phone numbers and names are not considered sensitive. Only the first 20,000 characters of a text are examined.
 
-**Wie die Zensur aussieht.** Die Liste zeigt Anfang und Ende des Geheimnisses und Punkte dazwischen, zum Beispiel `ghp_••••••••••••6789`. Mehrzeilige Geheimnisse wie ein privater Schlüssel erscheinen nur als Punkte. Die Zensur gilt ausschließlich für die Anzeige:
+**What the masking looks like.** The list shows the beginning and end of the secret with dots in between, for example `ghp_••••••••••••6789`. Multi-line secrets such as a private key appear only as dots. The masking applies to the display only:
 
-- Eingefügt wird der echte Wert.
-- Die Verlaufsdatei enthält den Text unzensiert.
-- Die Suche arbeitet auf dem echten Text.
+- The real value is pasted.
+- The history file contains the text unmasked.
+- The search works on the real text.
 
-## Vorschau und Bearbeiten
+## Preview and editing
 
-Die Leertaste öffnet den gewählten Eintrag in voller Größe im Fenster, und Text lässt sich dort ändern, bevor er eingefügt wird. In der Suche tippt die Leertaste ein normales Leerzeichen; die Vorschau öffnet sich nur bei leerem Suchfeld.
+The space bar opens the selected entry in full size inside the window, and text can be changed there before it is pasted. In the search field the space bar types a normal space; the preview only opens when the search field is empty.
 
-- **Text:** wird vollständig gezeigt. Code erscheint in Festbreitenschrift.
-- **Bild:** wird auf die Fensterbreite verkleinert, größer als in der Liste.
-- **Einfügen:** Strg+Enter oder der Knopf „Einfügen“. Wurde der Text geändert, wird die geänderte Fassung als reiner Text eingefügt und als neuer Eintrag im Verlauf abgelegt. Das Original bleibt unverändert. Ohne Änderung wird der Eintrag wie sonst eingefügt, also mit Formatierung, wenn das der Standard ist.
-- **Zurück:** Esc oder der Knopf „Zurück“.
+- **Text:** shown in full. Code appears in a monospaced font.
+- **Image:** scaled down to the window width, larger than in the list.
+- **Paste:** Ctrl+Enter or the "Paste" button. If the text was changed, the changed version is pasted as plain text and stored as a new entry in the history. The original stays unchanged. Without changes the entry is pasted as usual, that is, with formatting if that is the default.
+- **Back:** Esc or the "← Back" button.
 
-**Sensible Einträge** bleiben in der Vorschau zensiert und schreibgeschützt, bis Sie „Anzeigen“ drücken. „Verbergen“ stellt die Zensur wieder her.
+**Sensitive entries** stay masked and read-only in the preview until you press "Show". "Hide" restores the masking.
 
-**Grenzen.** Texte über 200.000 Zeichen zeigt die Vorschau nur zum Anfang und nicht bearbeitbar; eingefügt wird dann das Original. Ein Rückgängig-Befehl ist im Editor nicht eingebaut.
+**Limits.** For texts over 200,000 characters the preview shows only the beginning and does not allow editing; the original is pasted. The editor has no built-in undo.
 
-## Formatierung beim Einfügen
+## Formatting when pasting
 
-SuperV speichert Formatierung mit, und standardmäßig fügen Enter und Klick nur den reinen Text ein. Ein Zusatzknopf liefert die Formatierung mit.
+Super Clipboard stores formatting too, and by default Enter and click paste only the plain text. An extra button pastes with the formatting.
 
-Wurde etwas mit Formatierung kopiert (fett, Links, Listen, etwa aus einer Webseite oder einem Office-Dokument), steht beim Eintrag „formatiert“. Links neben der Pinnnadel erscheint dann ein Knopf mit einem unterstrichenen A. Nur solche Einträge haben ihn; Bilder und reiner Text nicht.
+If something was copied with formatting (bold, links, lists, for example from a web page or an office document), the entry says "formatted". To the left of the pin there is then a button with an underlined A. Only such entries have it; images and plain text do not.
 
-| Einstellung „Standardmäßig mit Formatierung einfügen“ | Enter und Klick | Knopf neben der Pinnnadel | Umschalt+Enter |
+| Setting "Paste with formatting by default" | Enter and click | Button next to the pin | Shift+Enter |
 | --- | --- | --- | --- |
-| aus (Standard) | ohne Formatierung | mit Formatierung | mit Formatierung |
-| an | mit Formatierung | ohne Formatierung | ohne Formatierung |
+| off (default) | without formatting | with formatting | with formatting |
+| on | with formatting | without formatting | without formatting |
 
-Beim Einfügen mit Formatierung bietet SuperV der Zielanwendung beide Formen gleichzeitig an, HTML und reinen Text. Welche davon übernommen wird, entscheidet das Zielprogramm: Textverarbeitungen und Browser können die Formatierung übernehmen, Terminals zeigen nur den Text.
+When pasting with formatting, Super Clipboard offers the target application both forms at once, HTML and plain text. Which one is used is up to the target program: word processors and browsers can take the formatting, terminals show only the text.
 
-Bei zu großen Kopien (HTML über 300.000 Zeichen) speichert SuperV nur den reinen Text. Aus Einträgen ohne Formatierung wird auch mit dem Knopf nichts Formatiertes.
+For very large copies (HTML over 300,000 characters) Super Clipboard stores only the plain text. Entries without formatting do not become formatted even with the button.
 
-## Fensterposition und Monitore
+## Window position and monitors
 
-Das Fenster öffnet sich mittig auf dem Monitor, auf dem Sie arbeiten, und wenn Sie es verschieben, merkt sich SuperV die Stelle für genau diesen Monitor.
+The window opens centered on the monitor you are working on, and if you move it, Super Clipboard remembers the position for exactly that monitor.
 
-- **Welcher Monitor?** Unter X11 der Monitor des aktiven Fensters, ersatzweise der des Mauszeigers. Unter Wayland der Monitor des Mauszeigers: Ein unsichtbares Hilfsfenster fragt den Desktop, wo er neue Fenster platziert, danach erscheint das Fenster einmal an seinem Platz.
-- **Verschieben:** Kopfzeile oder Fußzeile mit der Maus ziehen. Die Stelle wird pro Monitor in `state.json` gespeichert, relativ zur Ecke des Monitors.
-- **Beim nächsten Öffnen** nutzt SuperV für den aktuellen Monitor die gemerkte Stelle. Monitore, auf denen Sie nie verschoben haben, bleiben mittig. Liegt die gemerkte Stelle außerhalb des Monitors, wird sie in den sichtbaren Bereich zurückgesetzt.
-- **Monitorwechsel:** Ein Monitor wird an Hersteller, Modell, Auflösung und Lage erkannt. Ändern Sie die Anordnung der Bildschirme, gilt er als neuer Monitor.
-- **Zurücksetzen:** In den Einstellungen „Gemerkte Positionen vergessen“, oder die Funktion mit „Fensterposition pro Monitor merken“ ausschalten.
+- **Which monitor?** On X11 the monitor of the active window, otherwise that of the mouse pointer. On Wayland the monitor of the mouse pointer: an invisible helper window asks the desktop where it places new windows, after which the window appears once in its place.
+- **Moving:** drag the header or footer with the mouse. The position is saved per monitor in `state.json`, relative to the corner of the monitor.
+- **The next time it opens,** Super Clipboard uses the remembered position for the current monitor. Monitors on which you never moved the window stay centered. If the remembered position lies outside the monitor, it is moved back into the visible area.
+- **Changing monitors:** a monitor is recognized by manufacturer, model, resolution and position. If you change the arrangement of your screens, it counts as a new monitor.
+- **Resetting:** use "Forget saved positions" in the settings, or turn off "Remember the panel position per monitor".
 
-Die Einstellung `position` in der Datei `config.json` kennt `auto` (Standard, mittig) und `pointer` (unter X11 an der Stelle des Mauszeigers). Eine gemerkte Position hat in beiden Fällen Vorrang.
+The `position` setting in `config.json` accepts `auto` (default, centered) and `pointer` (on X11 at the mouse pointer). A remembered position takes precedence in both cases.
 
-## Einstellungen
+## Settings
 
-Die wichtigsten Einstellungen stehen im Einstellungsfenster (Zahnrad im Kopf des Fensters); alle zusammen in `~/.config/superv/config.json`. Das Fenster ändert erst etwas, wenn Sie „Speichern“ drücken. „Abbrechen“ oder Esc verwirft die Änderungen.
+The most important settings are in the settings window (gear in the window header); all of them are in `~/.config/super-clipboard/config.json`. The window only changes something when you press "Save". "Cancel" or Esc discards the changes.
 
-| Schlüssel in config.json | Standard | Bedeutung und Einstellungsfenster |
+| Key in config.json | Default | Meaning and settings window label |
 | --- | --- | --- |
-| `max_items` | 50 | Zahl der nicht angehefteten Einträge, 1 bis 500. Fenster: „Einträge im Verlauf“ (5 bis 500) |
-| `expire_days` | 30 | Nicht angeheftete Einträge, die älter sind, werden gelöscht; 0 = nie, höchstens 3650. Fenster: „Einträge löschen nach (Tagen)“ |
-| `remember_position` | true | Fensterposition pro Monitor merken. Fenster: „Fensterposition pro Monitor merken“ |
-| `paste_on_select` | true | Beim Auswählen sofort einfügen; aus = Eintrag wird nur in die Zwischenablage gelegt. Fenster: „Beim Auswählen sofort einfügen“ |
-| `paste_shortcut` | `shift+insert` | Taste, die SuperV zum Einfügen sendet: `shift+insert`, `ctrl+v` oder `ctrl+shift+v`. Fenster: „Tastenkürzel zum Einfügen“ |
-| `paste_formatted` | false | Standardmäßig mit Formatierung einfügen. Fenster: „Standardmäßig mit Formatierung einfügen“ |
-| `persist` | true | Verlauf nach dem Abmelden behalten. Fenster: „Verlauf nach dem Abmelden behalten“ |
-| `position` | `auto` | `auto` = mittig auf dem Monitor, `pointer` = am Mauszeiger (nur X11); nur in der Datei |
-| `max_text_chars` | 1000000 | längere Texte werden nicht aufgenommen; nur in der Datei |
-| `max_image_pixels` | 40000000 | Bilder mit mehr Pixeln (Breite mal Höhe) werden nicht aufgenommen; nur in der Datei |
-| `max_html_chars` | 300000 | größere Formatierung wird verworfen, der Text bleibt; nur in der Datei |
+| `max_items` | 50 | Number of unpinned entries, 1 to 500. Window: "Entries kept in the history" (5 to 500) |
+| `expire_days` | 30 | Unpinned entries that are older are deleted; 0 = never, at most 3650. Window: "Delete entries after (days)" |
+| `remember_position` | true | Remember the window position per monitor. Window: "Remember the panel position per monitor" |
+| `paste_on_select` | true | Paste immediately when selecting; off = the entry is only placed on the clipboard. Window: "Paste right away when picking an entry" |
+| `paste_shortcut` | `shift+insert` | Key that Super Clipboard sends to paste: `shift+insert`, `ctrl+v` or `ctrl+shift+v`. Window: "Shortcut used for pasting" |
+| `paste_formatted` | false | Paste with formatting by default. Window: "Paste with formatting by default" |
+| `persist` | true | Keep the history after logging out. Window: "Keep the history after logging out" |
+| `position` | `auto` | `auto` = centered on the monitor, `pointer` = at the mouse pointer (X11 only); file only |
+| `max_text_chars` | 1000000 | longer texts are not recorded; file only |
+| `max_image_pixels` | 40000000 | images with more pixels (width times height) are not recorded; file only |
+| `max_html_chars` | 300000 | larger formatting is discarded, the text stays; file only |
 
-**Gut zu wissen.**
+**Good to know.**
 
-- Das Einfügen mit `shift+insert` (Standard) funktioniert auch in Terminals. Dafür setzt SuperV zusätzlich die Maus-Auswahl (primary selection) auf den reinen Text.
-- Beim Speichern im Fenster werden zu viele oder zu alte Einträge sofort gelöscht. Das Alter prüft SuperV außerdem beim Start, beim Öffnen des Fensters und stündlich.
-- Haben Sie `config.json` von Hand geändert, starten Sie neu: `superv --quit; superv &`. Fehlt die Datei, legt SuperV sie beim Start mit den Standardwerten an.
+- Pasting with `shift+insert` (default) also works in terminals. For this, Super Clipboard additionally sets the mouse selection (primary selection) to the plain text.
+- When saving in the window, surplus or too old entries are deleted immediately. Super Clipboard also checks the age at startup, when the window opens, and every hour.
+- If you edited `config.json` by hand, restart: `super-clipboard --quit; super-clipboard &`. If the file is missing, Super Clipboard creates it with the default values at startup.
 
-## Dateien, Speicherort und Datenschutz
+## Files, storage location and privacy
 
-SuperV speichert alles lokal in Ihrem Home-Verzeichnis und baut keine Netzwerkverbindung auf. Die Ordner sind nur für Sie lesbar (Rechte 700), die Dateien ebenfalls (600).
+Super Clipboard stores everything locally in your home directory and makes no network connections. The folders are readable only by you (permissions 700), and so are the files (600).
 
-| Pfad | Inhalt |
+| Path | Content |
 | --- | --- |
-| `~/.local/share/superv/history.json` | der Verlauf: Text, gegebenenfalls Formatierung (HTML), Anheft-Status, Zeitpunkt; sensible Texte unzensiert |
-| `~/.local/share/superv/images/` | kopierte Bilder als PNG |
-| `~/.config/superv/config.json` | Einstellungen |
-| `~/.config/superv/state.json` | gemerkte Fensterpositionen pro Monitor |
-| `~/.config/superv/hotkey-installed` | Markierung, dass das Tastenkürzel schon eingetragen wurde |
+| `~/.local/share/super-clipboard/history.json` | the history: text, formatting (HTML) if any, pin status, time; sensitive texts unmasked |
+| `~/.local/share/super-clipboard/images/` | copied images as PNG |
+| `~/.config/super-clipboard/config.json` | settings |
+| `~/.config/super-clipboard/state.json` | remembered window positions per monitor |
+| `~/.config/super-clipboard/hotkey-installed` | marker that the keyboard shortcut has already been registered |
 
-**Was nicht aufgezeichnet wird.**
+**What is not recorded.**
 
-- Kopien, die ein Passwortmanager mit dem Hinweis „vertraulich“ (`x-kde-passwordManagerHint`) kennzeichnet. KeePassXC tut das; ob ein anderer Manager es tut, hängt von diesem ab.
-- Leere oder nur aus Leerzeichen bestehende Texte.
-- Texte über 1.000.000 Zeichen und Bilder über 40 Millionen Pixel (einstellbar in `config.json`).
+- Copies that a password manager marks as confidential (`x-kde-passwordManagerHint`). KeePassXC does this; whether another manager does depends on that manager.
+- Empty texts or texts consisting only of whitespace.
+- Texts over 1,000,000 characters and images over 40 million pixels (adjustable in `config.json`).
 
-**Verlauf löschen.** „Alle löschen“ entfernt alles außer angehefteten Einträgen. Zum vollständigen Löschen `superv --quit` ausführen und `~/.local/share/superv` entfernen. Wer den Verlauf nicht auf der Festplatte haben will, stellt „Verlauf nach dem Abmelden behalten“ aus; dann schreibt SuperV keine history.json. Kopierte Bilder liegen im Betrieb trotzdem im Ordner images und werden beim nächsten Start gelöscht.
+**Deleting the history.** "Clear all" removes everything except pinned entries. To delete everything, run `super-clipboard --quit` and remove `~/.local/share/super-clipboard`. If you do not want the history on disk, turn off "Keep the history after logging out"; Super Clipboard then writes no history.json. Copied images still sit in the images folder while running and are deleted at the next start.
 
-## Befehle
+## Commands
 
-Alle Befehle laufen über das Programm `superv` und sprechen den schon laufenden Hintergrundprozess an.
+All commands go through the `super-clipboard` program and talk to the background process that is already running.
 
-| Befehl | Wirkung |
+| Command | Effect |
 | --- | --- |
-| `superv` | Hintergrundprozess starten (macht das Autostart-Eintrag beim Login), ohne das Fenster zu zeigen |
-| `superv --show` (`-s`) | Fenster zeigen; startet den Prozess, falls er nicht läuft |
-| `superv --toggle` (`-t`) | Fenster zeigen oder verbergen |
-| `superv --quit` (`-q`) | Hintergrundprozess beenden und den Verlauf speichern |
-| `superv --setup-hotkey` | Super+V (neu) als Tastenkürzel eintragen |
-| `superv --remove-hotkey` | Tastenkürzel entfernen und Super+V an GNOME zurückgeben |
-| `superv --version` (`-v`) | Version ausgeben |
-| `superv-toggle` | wird vom Tastenkürzel aufgerufen; schaltet das Fenster über D-Bus um und startet SuperV, falls es nicht läuft |
+| `super-clipboard` | start the background process (done by the autostart entry at login), without showing the window |
+| `super-clipboard --show` (`-s`) | show the window; starts the process if it is not running |
+| `super-clipboard --toggle` (`-t`) | show or hide the window |
+| `super-clipboard --quit` (`-q`) | end the background process and save the history |
+| `super-clipboard --setup-hotkey` | (re)register Super+V as the keyboard shortcut |
+| `super-clipboard --remove-hotkey` | remove the keyboard shortcut and give Super+V back to GNOME |
+| `super-clipboard --version` (`-v`) | print the version |
+| `super-clipboard-toggle` | called by the keyboard shortcut; toggles the window over D-Bus and starts Super Clipboard if it is not running |
 
-## So funktioniert es
+## How it works
 
-Ein kleiner Hintergrundprozess beobachtet die Zwischenablage, das Fenster ist nur seine Anzeige. Der Weg eines Eintrags:
+A small background process watches the clipboard; the window is only its display. The path of an entry:
 
-1. Sie kopieren etwas. Der Prozess merkt den Besitzerwechsel der Zwischenablage und liest, welche Formate angeboten werden.
-2. Trägt die Kopie den Passwortmanager-Hinweis, wird sie verworfen. Sonst liest SuperV Text (und, falls vorhanden, `text/html`) oder ein Bild.
-3. Text wird einsortiert (Sensibel, URLs, Code, Text) und gespeichert. Derselbe Text wird nicht doppelt abgelegt, sondern nach vorn geholt, mit neuer Zeit.
-4. Super+V ruft `superv-toggle` auf, das das Fenster per D-Bus öffnet. Das Fenster zeigt den Verlauf.
-5. Bei Auswahl legt SuperV den Eintrag in die Zwischenablage, schließt das Fenster und sendet nach etwa 0,2 Sekunden die Einfügetaste über eine virtuelle Tastatur.
+1. You copy something. The process notices the change of clipboard owner and reads which formats are offered.
+2. If the copy carries the password-manager hint, it is discarded. Otherwise Super Clipboard reads text (and, if present, `text/html`) or an image.
+3. The text is sorted (Sensitive, URLs, Code, Text) and stored. The same text is not stored twice but moved to the front with a new time.
+4. Super+V calls `super-clipboard-toggle`, which opens the window over D-Bus. The window shows the history.
+5. On selection, Super Clipboard puts the entry on the clipboard, closes the window and, after about 0.2 seconds, sends the paste key through a virtual keyboard.
 
-**Bausteine und Gründe.**
+**Building blocks and reasons.**
 
-- **X11 auch unter Wayland.** Der Prozess läuft als X11-Programm (über XWayland), weil unter GNOME-Wayland nur solche Programme erfahren, was in anderen Fenstern kopiert wird.
-- **Virtuelle Tastatur.** Das Einfügen läuft über `/dev/uinput`, weil Wayland kein Tastendrücken in fremde Fenster erlaubt. Nur unter X11 gibt es als Ersatz `xdotool`.
-- **Formatierung.** Ein unsichtbares Widget übernimmt die Zwischenablage und beantwortet Anfragen sowohl mit HTML als auch mit reinem Text.
-- **Fenster ohne Aufflackern.** Es wird erst sichtbar, wenn es an seinem Platz steht; unter Wayland ermittelt vorher ein unsichtbares 1×1-Fenster den Monitor.
-- **Tastenkürzel.** Als benutzerdefiniertes GNOME-Kürzel eingetragen, das `superv-toggle` startet.
-- **Metadaten für Software-Center.** Das Paket enthält AppStream-Daten (Name „SuperV“, Entwickler, Versionsnotizen).
+- **X11 even on Wayland.** The process runs as an X11 program (through XWayland), because under GNOME on Wayland only such programs learn what is copied in other windows.
+- **Virtual keyboard.** Pasting goes through `/dev/uinput`, because Wayland does not allow sending key presses into other windows. Only on X11 is there `xdotool` as a fallback.
+- **Formatting.** An invisible widget takes over the clipboard and answers requests with both HTML and plain text.
+- **Window without flicker.** It only becomes visible once it is in place; on Wayland an invisible 1×1 window determines the monitor beforehand.
+- **Keyboard shortcut.** Registered as a custom GNOME shortcut that starts `super-clipboard-toggle`.
+- **Metadata for software centers.** The package contains AppStream data (name "Super Clipboard", developer, release notes).
 
-## Grenzen und bekannte Einschränkungen
+## Limits and known restrictions
 
-SuperV ist ein kleines Werkzeug, und einige Dinge kann es bewusst oder technisch nicht.
+Super Clipboard is a small tool, and some things it cannot do, by design or for technical reasons.
 
-- **Dateien.** Kopierte Dateien speichert SuperV nicht als Dateien; je nach Dateimanager erscheint höchstens ihr Pfad als Text.
-- **Formatierung.** Es wird nur HTML gespeichert, kein RTF. Ob die Zielanwendung die Formatierung übernimmt, entscheidet sie selbst.
-- **Erkennung sensibler Daten.** Sie beruht auf Mustern und liegt manchmal falsch. Eine manuelle Umsortierung gibt es nicht. Die Zensur schützt nur die Anzeige, nicht die Datei und nicht die Suche.
-- **Passwortmanager.** Nur Kopien mit Vertraulichkeits-Hinweis werden übersprungen. Ohne Hinweis zeichnet SuperV das Kopierte auf.
-- **Einfügen ohne /dev/uinput.** Unter Wayland kann SuperV dann keine Taste senden. Der Eintrag liegt in der Zwischenablage, und im Fußtext des Fensters steht, dass Sie selbst mit Strg+V einfügen. Unter X11 hilft `xdotool`.
-- **Fenster unter Wayland.** Es erscheint mittig auf dem Monitor mit dem Mauszeiger; das Platzieren am Mauszeiger gibt es nur unter X11. Ob das Fenster beim Öffnen sofort den Tastaturfokus bekommt, entscheidet der Desktop.
-- **Monitore.** Ändern Sie die Anordnung der Bildschirme, beginnt SuperV für den so veränderten Monitor wieder mittig; die alte Position ist dann nicht mehr zugeordnet.
-- **Editor.** Die Vorschau hat kein Rückgängig; Texte über 200.000 Zeichen sind dort nicht bearbeitbar.
-- **Software-Center.** Öffnen Sie die .deb-Datei in der Software-App, steht dort der Paketname `superv` (Debian erlaubt keine Großbuchstaben). Nach der Installation heißt die Anwendung „SuperV“.
+- **Files.** Super Clipboard does not store copied files as files; depending on the file manager, at most their path appears as text.
+- **Formatting.** Only HTML is stored, no RTF. Whether the target application accepts the formatting is up to that application.
+- **Detection of sensitive data.** It is based on patterns and is sometimes wrong. There is no manual re-sorting. The masking protects only the display, not the file and not the search.
+- **Password managers.** Only copies with a confidentiality hint are skipped. Without the hint, Super Clipboard records what was copied.
+- **Pasting without /dev/uinput.** On Wayland Super Clipboard then cannot send a key. The entry is on the clipboard, and the footer of the window says that you must paste yourself with Ctrl+V. On X11, `xdotool` helps.
+- **Window on Wayland.** It appears centered on the monitor with the mouse pointer; placing it at the pointer is only available on X11. Whether the window gets keyboard focus immediately when opening is decided by the desktop.
+- **Monitors.** If you change the arrangement of your screens, Super Clipboard starts centered again for the monitor changed that way; the old position is then no longer assigned.
+- **Editor.** The preview has no undo; texts over 200,000 characters cannot be edited there.
+- **Software center.** If you open the .deb file in the software app, it shows the package name `super-clipboard` (Debian does not allow capital letters). After installation the application is called "Super Clipboard".
 
-## Fehlerbehebung
+## Troubleshooting
 
-Die meisten Probleme betreffen das Tastenkürzel oder das Einfügen. Meldungen des Programms erscheinen im Terminal, wenn Sie es dort starten: `superv --quit; superv`.
+Most problems concern the keyboard shortcut or pasting. Messages from the program appear in the terminal if you start it there: `super-clipboard --quit; super-clipboard`.
 
-| Problem | Ursache und Lösung |
+| Problem | Cause and solution |
 | --- | --- |
-| Super+V tut nichts | `superv --setup-hotkey` ausführen. Prüfen, ob der Prozess läuft (`pgrep -af superv`) und ob unter Einstellungen > Tastatur ein anderes Kürzel Super+V belegt. |
-| Fenster öffnet, aber Einfügen passiert nicht | Steht im Fußtext „Enter kopiert den Eintrag – danach mit Strg+V einfügen“, fehlt der Zugriff auf `/dev/uinput`. Einmal ab- und anmelden; `ls -l /dev/uinput` zeigt, ob die Berechtigung gesetzt ist. Unter X11 hilft `sudo apt install xdotool`. |
-| In einem Terminal kommt nichts oder das Falsche an | Standard ist `shift+insert`. Falls das Programm eine andere Taste braucht, in den Einstellungen „Tastenkürzel zum Einfügen“ auf `ctrl+shift+v` stellen. |
-| Fenster erscheint auf dem falschen Monitor | In den Einstellungen „Gemerkte Positionen vergessen“. Unter Wayland entscheidet der Mauszeiger, unter X11 das aktive Fenster. |
-| Eintrag ist fälschlich sensibel oder nicht sensibel | Das liegt an der Mustererkennung. Löschen und neu Kopieren ändert nichts, denn der Text wird wieder genauso einsortiert; eine Korrektur pro Eintrag ist nicht vorgesehen. |
-| Verlauf ist nach dem Anmelden leer | Prüfen, ob „Verlauf nach dem Abmelden behalten“ aktiv ist und ob `expire_days` die Einträge schon gelöscht hat. |
-| Die Software-App zeigt eine alte Version oder den Namen `superv` | Für die installierte Anwendung `gnome-software --quit` ausführen und die App neu öffnen; notfalls ab- und anmelden. Für eine geöffnete .deb-Datei siehe „Grenzen“. |
+| Super+V does nothing | Run `super-clipboard --setup-hotkey`. Check whether the process is running (`pgrep -af super-clipboard`) and whether another shortcut in Settings > Keyboard uses Super+V. |
+| Window opens, but nothing is pasted | If the footer says "Entry is copied on Enter – then paste with Ctrl+V", access to `/dev/uinput` is missing. Log out and back in once; `ls -l /dev/uinput` shows whether the permission is set. On X11, `sudo apt install xdotool` helps. |
+| Nothing or the wrong thing arrives in a terminal | The default is `shift+insert`. If the program needs a different key, set "Shortcut used for pasting" to `ctrl+shift+v` in the settings. |
+| Window appears on the wrong monitor | Use "Forget saved positions" in the settings. On Wayland the mouse pointer decides, on X11 the active window. |
+| Entry is wrongly sensitive or not sensitive | This is down to the pattern detection. Deleting and copying again changes nothing, because the text is sorted the same way again; a correction per entry is not provided. |
+| History is empty after login | Check whether "Keep the history after logging out" is on and whether `expire_days` has already deleted the entries. |
+| The software app shows an old version or the name `super-clipboard` | For the installed application run `gnome-software --quit` and reopen the app; if necessary log out and back in. For an opened .deb file see "Limits". |
+| The interface is in the wrong language | Super Clipboard follows the system language (`LC_ALL`, `LC_MESSAGES`, `LANG`, and a `LANGUAGE` preference list). German systems get German, everything else gets English. Restart with `super-clipboard --quit; super-clipboard` after changing it, for example `LANG=en_US.UTF-8 super-clipboard`. |
 
-## Update und Deinstallation
+## Update and uninstallation
 
-Ein Update ersetzt nur das Programm; Verlauf und Einstellungen bleiben erhalten.
+An update replaces only the program; history and settings are kept.
 
-**Update.** Die neue .deb-Datei mit demselben Befehl installieren. Die Installation beendet den laufenden Prozess; der nächste Druck auf Super+V oder das nächste Login startet die neue Version.
-
-```
-sudo apt install ./superv_<Version>_all.deb
-superv --quit; superv --show
-```
-
-**Deinstallation.**
+**Update.** Install the new .deb file with the same command. The installation ends the running process; the next press of Super+V or the next login starts the new version.
 
 ```
-superv --remove-hotkey
-sudo apt remove superv
-rm -rf ~/.config/superv ~/.local/share/superv
+sudo apt install ./super-clipboard_<version>_all.deb
+super-clipboard --quit; super-clipboard --show
 ```
 
-Der erste Befehl gibt Super+V an GNOME zurück. Die letzte Zeile löscht Verlauf und Einstellungen; ohne sie bleiben beide für eine spätere Neuinstallation liegen.
-
-## Aus dem Quellcode bauen
-
-Das Quellarchiv baut mit einem einzigen Skript ein .deb; neben den Standardwerkzeugen braucht es nur `dpkg-deb`.
+**Uninstallation.**
 
 ```
-tar xzf superv-1.2.0-source.tar.gz
-cd superv
+super-clipboard --remove-hotkey
+sudo apt remove super-clipboard
+rm -rf ~/.config/super-clipboard ~/.local/share/super-clipboard
+```
+
+The first command gives Super+V back to GNOME. The last line deletes history and settings; without it both remain for a later reinstallation.
+
+## Building from source
+
+The source archive builds a .deb with a single script; besides the standard tools it only needs `dpkg-deb`.
+
+```
+tar xzf super-clipboard-1.3.0-source.tar.gz
+cd super-clipboard
 ./build.sh
 ```
 
-Das Ergebnis liegt unter `build/superv_<Version>_all.deb`. Die Version liest das Skript aus der Zeile `VERSION = "…"` in `src/superv`.
+The result is at `build/super-clipboard_<version>_all.deb`. The script reads the version from the line `VERSION = "…"` in `src/super-clipboard`.
 
-| Ordner oder Datei | Inhalt |
+| Folder or file | Content |
 | --- | --- |
-| `src/superv` | das Programm (eine Python-Datei) |
-| `src/superv-toggle` | kleines Skript, das das Tastenkürzel aufruft |
-| `data/` | Desktop-Einträge, Symbole, udev-Regel, AppStream-Dateien, README |
-| `debian/` | Paketdaten: `control.in`, `postinst`, `prerm`, `postrm`, `changelog`, `copyright` |
-| `build.sh` | baut das Paket |
+| `src/super-clipboard` | the program (a single Python file) |
+| `src/super-clipboard-toggle` | small script that the keyboard shortcut calls |
+| `data/` | desktop entries, icons, udev rule, AppStream files, README |
+| `debian/` | package data: `control.in`, `postinst`, `prerm`, `postrm`, `changelog`, `copyright` |
+| `build.sh` | builds the package |
 
-**Neue Version veröffentlichen.**
+**Releasing a new version.**
 
-1. `VERSION` in `src/superv` erhöhen.
-2. Oben in `debian/changelog` einen neuen Eintrag anlegen.
-3. In `data/org.superv.Clipboard.metainfo.xml` und `data/org.superv.Clipboard.catalog.xml` einen neuen `<release>`-Eintrag ergänzen. Der oberste trägt `@VERSION@`; der bisher oberste bekommt seine feste Versionsnummer.
-4. `./build.sh` ausführen.
+1. Raise `VERSION` in `src/super-clipboard`.
+2. Add a new entry at the top of `debian/changelog`.
+3. Add a new `<release>` entry in `data/org.super_clipboard.Clipboard.metainfo.xml` and `data/org.super_clipboard.Clipboard.catalog.xml`. The topmost one carries `@VERSION@`; the previously topmost one gets its fixed version number.
+4. Run `./build.sh`.
 
-## Versionsverlauf
+**Languages.** The interface strings live in the `STRINGS` table in `src/super-clipboard`. `DEFAULT_LANGUAGE` (`en`) is used for every system language without a translation. To add a language, add a table under its two-letter code with the same keys as `en`.
 
-| Version | Datum | Änderungen |
+## Version history
+
+| Version | Date | Changes |
 | --- | --- | --- |
-| 1.2.0 | 16.11.2026 | Vorschau mit Bearbeiten (Leertaste); Einfügen mit oder ohne Formatierung, Knopf neben der Pinnnadel und Einstellung; Versionsnotizen für das Software-Center |
-| 1.1.1 | 16.11.2026 | Fenster blitzt nicht mehr vor dem Platzieren auf; Strg+Zahl wartet auf das Loslassen von Strg; Reiter „URLs“; Namen wie `Mobile_pos2` gelten nicht mehr als Passwort |
-| 1.1.0 | 16.11.2026 | Schnellwahl mit Strg+1 bis 9; Zeitangabe je Eintrag; Position pro Monitor merken; automatisches Löschen; Reiter Text, Code, Sensibel, Bilder mit Zensur; Einstellungsfenster |
-| 1.0.7 | 13.11.2026 | Versionsnummer mittig im Fensterkopf |
-| 1.0.6 | 13.11.2026 | Versionsnummer statt Autor im Fensterkopf |
-| 1.0.5 | 13.11.2026 | AppStream-Katalogdaten für den Namen „SuperV“; Greifer-Mauszeiger entfernt |
-| 1.0.4 | 13.11.2026 | Paketbeschreibung mit Name und Autor |
-| 1.0.3 | 13.11.2026 | Fenster per Maus verschiebbar; AppStream-Metadaten |
-| 1.0.2 | 13.11.2026 | Autorenangabe |
-| 1.0.1 | 13.11.2026 | Darstellung der markierten Zeile korrigiert; Öffnen auf dem aktuellen Monitor |
-| 1.0.0 | 13.11.2026 | erste Version: Verlauf für Text und Bilder, Super+V, Suche, Anheften |
+| 1.3.0 | 2026-11-16 | English is the default interface language, German follows a German system language; language detection follows gettext rules; documentation in English |
+| 1.3.0 | 2026-11-16 | Preview with editing (space bar); pasting with or without formatting, button next to the pin and a setting; release notes for the software center |
+| 1.1.1 | 2026-11-16 | Window no longer flashes before it is placed; Ctrl+number waits for Ctrl to be released; "URLs" tab; names such as `Mobile_pos2` no longer count as a password |
+| 1.1.0 | 2026-11-16 | Quick selection with Ctrl+1 to 9; time per entry; remember position per monitor; automatic deletion; Text, Code, Sensitive, Images tabs with masking; settings window |
+| 1.0.7 | 2026-11-13 | Version number centered in the window header |
+| 1.0.6 | 2026-11-13 | Version number instead of author in the window header |
+| 1.0.5 | 2026-11-13 | AppStream catalog data for the name "SuperV"; grab cursor removed |
+| 1.0.4 | 2026-11-13 | Package description with name and author |
+| 1.0.3 | 2026-11-13 | Window can be moved with the mouse; AppStream metadata |
+| 1.0.2 | 2026-11-13 | Author credit |
+| 1.0.1 | 2026-11-13 | Highlighted row display fixed; opening on the current monitor |
+| 1.0.0 | 2026-11-13 | first version: history for text and images, Super+V, search, pinning |

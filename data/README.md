@@ -1,4 +1,4 @@
-# SuperV - clipboard history on Super+V
+# Super Clipboard - clipboard history on Super+V
 
 By Sacid Sezgin.
 
@@ -54,17 +54,17 @@ Pasting inserts the real value, and the history file still holds it in full
 
 ## Commands
 
-    superv                 start the background process (done at login)
-    superv --toggle        show / hide the panel
-    superv --setup-hotkey  bind Super+V again
-    superv --remove-hotkey remove the binding, give Super+V back to GNOME
-    superv --quit          stop the background process
+    super-clipboard                 start the background process (done at login)
+    super-clipboard --toggle        show / hide the panel
+    super-clipboard --setup-hotkey  bind Super+V again
+    super-clipboard --remove-hotkey remove the binding, give Super+V back to GNOME
+    super-clipboard --quit          stop the background process
 
 ## Settings
 
 The gear button in the panel opens a settings window. Everything is stored in
-`~/.config/superv/config.json`; if you edit that file by hand, restart with
-`superv --quit; superv &`:
+`~/.config/super-clipboard/config.json`; if you edit that file by hand, restart with
+`super-clipboard --quit; super-clipboard &`:
 
 - `max_items` - entries kept, pinned ones not counted (default 50)
 - `persist` - keep the history across logins (default true)
@@ -73,12 +73,12 @@ The gear button in the panel opens a settings window. Everything is stored in
   `ctrl+v` or `ctrl+shift+v`
 - `position` - `auto` (centred on the monitor you are on) or `pointer` (at the mouse, X11 sessions only)
 - `remember_position` - reopen where the panel was dragged to, stored per
-  monitor in `~/.config/superv/state.json` (default true)
+  monitor in `~/.config/super-clipboard/state.json` (default true)
 - `paste_formatted` - paste with formatting by default (default false)
 - `expire_days` - delete unpinned entries older than this many days; 0 = never
   (default 30)
 
-The history is stored in `~/.local/share/superv/` (readable by you only).
+The history is stored in `~/.local/share/super-clipboard/` (readable by you only).
 
 ## How it works
 
@@ -91,6 +91,6 @@ The history is stored in `~/.local/share/superv/` (readable by you only).
 
 ## Uninstall
 
-    superv --remove-hotkey
-    sudo apt remove superv
-    rm -rf ~/.config/superv ~/.local/share/superv
+    super-clipboard --remove-hotkey
+    sudo apt remove super-clipboard
+    rm -rf ~/.config/super-clipboard ~/.local/share/super-clipboard

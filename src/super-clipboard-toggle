@@ -1,0 +1,7 @@
+#!/bin/sh
+# Run by the Super+V shortcut. Asks the running Super Clipboard process over D-Bus to
+# show or hide its panel (fast); if it is not running yet, starts it.
+gdbus call --session --dest org.super_clipboard.Clipboard \
+    --object-path /org/super_clipboard/Clipboard \
+    --method org.gtk.Actions.Activate toggle '[]' '{}' >/dev/null 2>&1 && exit 0
+exec /usr/bin/super-clipboard --toggle
