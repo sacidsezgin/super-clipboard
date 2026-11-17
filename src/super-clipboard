@@ -46,7 +46,7 @@ except (ValueError, ImportError):
 
 APP_ID = "org.super_clipboard.Clipboard"
 APP_NAME = "Super Clipboard"
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 AUTHOR = "Sacid Sezgin"
 TOGGLE_COMMAND = "/usr/bin/super-clipboard-toggle"
 
@@ -835,6 +835,8 @@ def session_is_wayland():
 MEDIA_SCHEMA = "org.gnome.settings-daemon.plugins.media-keys"
 CUSTOM_SCHEMA = MEDIA_SCHEMA + ".custom-keybinding"
 CUSTOM_PATH = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/super-clipboard/"
+LEGACY_CUSTOM_PATH = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/superv/"
+LEGACY_TOGGLE_COMMAND = "/usr/bin/superv-toggle"
 SHELL_SCHEMA = "org.gnome.shell.keybindings"
 SHELL_KEY = "toggle-message-tray"
 XFCE_PROPERTY = "/commands/custom/<Super>v"
@@ -849,8 +851,39 @@ def _is_xfce():
     return "xfce" in os.environ.get("XDG_CURRENT_DESKTOP", "").lower()
 
 
-def setup_hotkey():
-    """Bind Super+V to the toggle command. Returns a short status string."""
+def migrate_legacy_hotkey():
+    """Drop the Super+V binding left behind by the old "SuperV" package.
+
+    It points at a command that no longer exists and claims the same key, so
+    it would shadow the new binding. Returns True if something was removed.
+    """
+    removed = False
+    if _is_xfce() and shutil.which("xfconf-query"):
+        old = subprocess.run(["xfconf-query", "-c", "xfce4-keyboard-shortcuts", "-p", XFCE_PROPERTY],
+                             capture_output=True, text=True).stdout.strip()
+        if old == LEGACY_TOGGLE_COMMAND:
+            subprocess.call(["xfconf-query", "-c", "xfce4-keyboard-shortcuts", "-p", XFCE_PROPERTY, "-r"])
+            removed = True
+    if _schema(MEDIA_SCHEMA) and _schema(CUSTOM_SCHEMA):
+        media = Gio.Settings.new(MEDIA_SCHEMA)
+        paths = list(media.get_strv("custom-keybindings"))
+        if LEGACY_CUSTOM_PATH in paths:
+            paths.remove(LEGACY_CUSTOM_PATH)
+            media.set_strv("custom-keybindings", paths)
+            binding = Gio.Settings.new_with_path(CUSTOM_SCHEMA, LEGACY_CUSTOM_PATH)
+            for key in ("name", "command", "binding"):
+                binding.reset(key)
+            removed = True
+        Gio.Settings.sync()
+    return removed
+
+
+def setup_hotkey(regrab=False):
+    """Bind Super+V to the toggle command. Returns a short status string.
+
+    regrab: gsd-media-keys does not retry a key grab that failed while the old
+    binding still held Super+V, so clear and re-set the key to make it try again.
+    """
     if _is_xfce() and shutil.which("xfconf-query"):
         subprocess.call(["xfconf-query", "-c", "xfce4-keyboard-shortcuts", "-p", XFCE_PROPERTY,
                          "-n", "-t", "string", "-s", TOGGLE_COMMAND])
@@ -860,6 +893,10 @@ def setup_hotkey():
     binding = Gio.Settings.new_with_path(CUSTOM_SCHEMA, CUSTOM_PATH)
     binding.set_string("name", "Super Clipboard History")
     binding.set_string("command", TOGGLE_COMMAND)
+    if regrab:
+        binding.set_string("binding", "")
+        Gio.Settings.sync()
+        time.sleep(0.5)
     binding.set_string("binding", "<Super>v")
     media = Gio.Settings.new(MEDIA_SCHEMA)
     paths = list(media.get_strv("custom-keybindings"))
@@ -907,7 +944,8 @@ CSS = b"""
     background-color: @theme_bg_color;
     border: 1px solid alpha(@theme_fg_color, 0.16);
     border-radius: 12px;
-    box-shadow: 0 6px 18px alpha(black, 0.32);
+    /* offset + blur must stay within the transparent margin (SHADOW), else it is cut off */
+    box-shadow: 0 3px 12px alpha(black, 0.35);
 }
 .super-clipboard-panel.super-clipboard-solid { border-radius: 0; box-shadow: none; }
 .super-clipboard-title { font-weight: bold; font-size: 1.05em; }
@@ -1925,7 +1963,7 @@ class SuperClipboard(Gtk.Application):
             print(APP_NAME, VERSION, "- by", AUTHOR)
             return 0
         if options.contains("setup-hotkey"):
-            result = setup_hotkey()
+            result = setup_hotkey(regrab=migrated)
             print("Super+V is now bound to Super Clipboard." if result else
                   "No supported desktop found - bind '%s' to Super+V manually." % TOGGLE_COMMAND)
             return 0 if result else 1
@@ -1986,7 +2024,13 @@ class SuperClipboard(Gtk.Application):
         return 0
 
     def _first_run_hotkey(self):
-        if os.path.exists(HOTKEY_MARKER):
+        try:
+            migrated = migrate_legacy_hotkey()
+        except GLib.Error as err:
+            log("legacy hotkey cleanup failed:", err.message)
+            migrated = False
+        # After a migration the new binding is (re)created even if the marker exists.
+        if os.path.exists(HOTKEY_MARKER) and not migrated:
             return
         try:
             result = setup_hotkey()

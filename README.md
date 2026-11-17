@@ -6,7 +6,7 @@ Nov 16, 2026 · @sacidsezgin
 
 Super Clipboard shows your clipboard history when you press Super+V, just like Win+V on Windows 11. It runs on Zorin OS and other Ubuntu desktops (GNOME on Wayland or X11, Xfce) and comes as a single .deb package.
 
-This documentation describes version 1.3.0 by Sacid Sezgin. The program is written in Python with GTK 3 and licensed under the MIT license.
+This documentation describes version 1.3.1 by Sacid Sezgin. The program is written in Python with GTK 3 and licensed under the MIT license.
 
 - Remembers text and images, the last 50 entries by default.
 - Pastes the chosen entry straight into the window you are working in.
@@ -23,7 +23,7 @@ This documentation describes version 1.3.0 by Sacid Sezgin. The program is writt
 One command installs Super Clipboard with its dependencies; after that a first start is all it takes for Super+V to work.
 
 ```
-sudo apt install ./super-clipboard_1.3.0_all.deb
+sudo apt install ./super-clipboard_1.3.1_all.deb
 super-clipboard --show
 ```
 
@@ -269,7 +269,7 @@ The first command gives Super+V back to GNOME. The last line deletes history and
 The source archive builds a .deb with a single script; besides the standard tools it only needs `dpkg-deb`.
 
 ```
-tar xzf super-clipboard-1.3.0-source.tar.gz
+tar xzf super-clipboard-1.3.1-source.tar.gz
 cd super-clipboard
 ./build.sh
 ```
@@ -297,8 +297,8 @@ The result is at `build/super-clipboard_<version>_all.deb`. The script reads the
 
 | Version | Date | Changes |
 | --- | --- | --- |
-| 1.3.0 | 2026-11-16 | English is the default interface language, German follows a German system language; language detection follows gettext rules; documentation in English |
-| 1.3.0 | 2026-11-16 | Preview with editing (space bar); pasting with or without formatting, button next to the pin and a setting; release notes for the software center |
+| 1.3.1 | 2026-11-16 | English is the default interface language, German follows a German system language; language detection follows gettext rules; documentation in English |
+| 1.3.1 | 2026-11-16 | Preview with editing (space bar); pasting with or without formatting, button next to the pin and a setting; release notes for the software center |
 | 1.1.1 | 2026-11-16 | Window no longer flashes before it is placed; Ctrl+number waits for Ctrl to be released; "URLs" tab; names such as `Mobile_pos2` no longer count as a password |
 | 1.1.0 | 2026-11-16 | Quick selection with Ctrl+1 to 9; time per entry; remember position per monitor; automatic deletion; Text, Code, Sensitive, Images tabs with masking; settings window |
 | 1.0.7 | 2026-11-13 | Version number centered in the window header |

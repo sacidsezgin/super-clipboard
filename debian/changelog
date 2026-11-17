@@ -1,4 +1,4 @@
-super-clipboard (1.3.0) unstable; urgency=medium
+super-clipboard (1.3.1) unstable; urgency=medium
 
   * Renamed the product from SuperV to Super Clipboard: package, command
     (super-clipboard, super-clipboard-toggle), application ID
@@ -8,6 +8,8 @@ super-clipboard (1.3.0) unstable; urgency=medium
     language is German. Language detection now follows gettext rules
     (LC_ALL, LC_MESSAGES, LANG, LANGUAGE preference list; C/POSIX = English).
   * Documentation (README) is now in English.
+  * Fix: the old SuperV Super+V shortcut (pointing at the removed superv-toggle)
+    is removed on first start, so it no longer shadows the new one.
 
  -- Sacid Sezgin <noreply@localhost>  Mon, 16 Nov 2026 18:00:00 +0100
 
