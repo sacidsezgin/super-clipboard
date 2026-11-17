@@ -35,7 +35,7 @@
         <p xml:lang="de">Englisch ist jetzt die Standardsprache der Oberfläche; Deutsch wird verwendet, wenn die Systemsprache Deutsch ist.</p>
       </description>
     </release>
-    <release version="1.4.0" date="2026-11-16">
+    <release version="1.5.0" date="2026-11-16">
         <description>
           <p>New: preview with editing (Space), paste with or without formatting, URLs tab, Ctrl+1-9 quick pick, per-monitor position memory, automatic expiry and a settings window.</p>
           <p xml:lang="de">Neu: Vorschau mit Bearbeiten (Leertaste), Einfügen mit oder ohne Formatierung, URL-Reiter, Schnellwahl mit Strg+1-9, Fensterposition pro Monitor, automatisches Löschen und ein Einstellungsfenster.</p>

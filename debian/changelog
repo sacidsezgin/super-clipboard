@@ -1,4 +1,4 @@
-super-clipboard (1.4.0) unstable; urgency=medium
+super-clipboard (1.5.0) unstable; urgency=medium
 
   * The keyboard shortcut that opens the panel can be changed in the settings:
     click the button, press the new key combination, Save.

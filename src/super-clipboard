@@ -46,7 +46,7 @@ except (ValueError, ImportError):
 
 APP_ID = "org.super_clipboard.Clipboard"
 APP_NAME = "Super Clipboard"
-VERSION = "1.4.0"
+VERSION = "1.5.0"
 AUTHOR = "Sacid Sezgin"
 TOGGLE_COMMAND = "/usr/bin/super-clipboard-toggle"
 
@@ -98,6 +98,8 @@ STRINGS = {
         "hint_copy_only": "Entry is copied on Enter – then paste with Ctrl+V",
         "image": "Image",
         "empty_tab": "No entries in this tab.",
+        "empty_pinned": "Nothing pinned yet. Pin an entry with the pin button or Ctrl+P.",
+        "tab_pinned": "Pinned",
         "tab_all": "All", "tab_text": "Text", "tab_code": "Code", "tab_url": "URLs",
         "tab_sensitive": "Sensitive", "tab_image": "Images",
         "cat_code": "Code", "cat_url": "URL", "cat_sensitive": "Sensitive", "cat_image": "Image",
@@ -140,6 +142,8 @@ STRINGS = {
         "hint_copy_only": "Enter kopiert den Eintrag – danach mit Strg+V einfügen",
         "image": "Bild",
         "empty_tab": "Keine Einträge in diesem Reiter.",
+        "empty_pinned": "Noch nichts angeheftet. Heften Sie einen Eintrag mit der Pinnnadel oder Strg+P an.",
+        "tab_pinned": "Angeheftet",
         "tab_all": "Alle", "tab_text": "Text", "tab_code": "Code", "tab_url": "URLs",
         "tab_sensitive": "Sensibel", "tab_image": "Bilder",
         "cat_code": "Code", "cat_url": "URL", "cat_sensitive": "Sensibel", "cat_image": "Bild",
@@ -550,7 +554,7 @@ def monitor_key(monitor):
 # ---------------------------------------------------------------- store ----
 
 class Item:
-    __slots__ = ("id", "kind", "text", "pinned", "ts", "category", "spans", "html")
+    __slots__ = ("id", "kind", "text", "pinned", "pinned_at", "ts", "category", "spans", "html")
 
     def __init__(self, item_id, kind, text="", pinned=False, ts=None, html=""):
         self.html = html           # formatted version (text/html) if the copy had one
@@ -558,6 +562,7 @@ class Item:
         self.kind = kind          # "text" or "image"
         self.text = text          # only for kind == "text"
         self.pinned = pinned
+        self.pinned_at = 0.0      # when it was pinned (0 = unknown, e.g. pinned by an older version)
         self.ts = ts or time.time()
         if kind == "text":
             self.category, self.spans = classify(text)   # "text", "code", "url" or "sensitive"
@@ -576,6 +581,8 @@ class Item:
 
     def to_dict(self):
         data = {"id": self.id, "kind": self.kind, "pinned": self.pinned, "ts": self.ts}
+        if self.pinned:
+            data["pinned_at"] = self.pinned_at
         if self.kind == "text":
             data["text"] = self.text
             if self.html:
@@ -612,6 +619,8 @@ class Store:
                 item = Item(str(entry["id"]), entry["kind"], entry.get("text", ""),
                             bool(entry.get("pinned")), float(entry.get("ts", 0)),
                             html if isinstance(html, str) else "")
+                if item.pinned:
+                    item.pinned_at = float(entry.get("pinned_at", 0))
             except (KeyError, TypeError, ValueError):
                 continue
             if not item.id.isalnum() or item.kind not in ("text", "image"):
@@ -668,6 +677,7 @@ class Store:
                 item.html = existing.html
             self.items.remove(existing)
             item.pinned = existing.pinned
+            item.pinned_at = existing.pinned_at
         self.items.insert(0, item)
         self._trim()
         self._changed()
@@ -730,6 +740,7 @@ class Store:
         item = self.get(item_id)
         if item is not None:
             item.pinned = not item.pinned
+            item.pinned_at = time.time() if item.pinned else 0.0
             self._trim()
             self._changed()
 
@@ -1069,7 +1080,7 @@ class Panel(Gtk.Window):
     SHADOW = 16
     PREVIEW_LINES = 4
     PREVIEW_CHARS = 400
-    TABS = ("all", "text", "code", "url", "sensitive", "image")
+    TABS = ("all", "text", "code", "url", "sensitive", "image", "pinned")
 
     def __init__(self, app):
         super().__init__(title=APP_NAME)
@@ -1150,7 +1161,12 @@ class Panel(Gtk.Window):
         tabbar.set_margin_end(12)
         first = None
         for tab in self.TABS:
-            button = Gtk.RadioButton.new_with_label_from_widget(first, _("tab_" + tab))
+            if tab == "pinned":      # shown as the pin icon only
+                button = Gtk.RadioButton.new_from_widget(first)
+                button.add(Gtk.Image.new_from_icon_name("super-clipboard-pin-symbolic", Gtk.IconSize.MENU))
+                button.set_tooltip_text(_("tab_pinned"))
+            else:
+                button = Gtk.RadioButton.new_with_label_from_widget(first, _("tab_" + tab))
             first = first or button
             button.set_mode(False)             # draw as a button, not as a radio dot
             button.set_relief(Gtk.ReliefStyle.NONE)
@@ -1521,7 +1537,11 @@ class Panel(Gtk.Window):
             self.listbox.remove(child)
         query = self.search.get_text().strip().lower()
         items = self.app.store.items
-        if self.tab != "all":
+        if self.tab == "pinned":
+            # latest pinned first; entries pinned by an older version fall back to their copy time
+            items = sorted((i for i in items if i.pinned),
+                           key=lambda i: i.pinned_at or i.ts, reverse=True)
+        elif self.tab != "all":
             items = [i for i in items if i.category == self.tab]
         if query:
             items = [i for i in items if i.kind == "text" and query in i.text.lower()]
@@ -1534,7 +1554,8 @@ class Panel(Gtk.Window):
             if item.id == keep_id:
                 choose = row
         self.placeholder.set_text(_("no_match") if query else
-                                  _("empty") if self.tab == "all" else _("empty_tab"))
+                                  _("empty") if self.tab == "all" else
+                                  _("empty_pinned") if self.tab == "pinned" else _("empty_tab"))
         self.clear_button.set_sensitive(any(not i.pinned for i in self.app.store.items))
         if self.preview_item is None:
             self.hint.set_text(_("hint") if self.app.can_paste() else _("hint_copy_only"))
