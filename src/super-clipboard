@@ -46,7 +46,7 @@ except (ValueError, ImportError):
 
 APP_ID = "org.super_clipboard.Clipboard"
 APP_NAME = "Super Clipboard"
-VERSION = "1.3.1"
+VERSION = "1.4.0"
 AUTHOR = "Sacid Sezgin"
 TOGGLE_COMMAND = "/usr/bin/super-clipboard-toggle"
 
@@ -67,6 +67,7 @@ DEFAULT_CONFIG = {
     "remember_position": True,         # reopen where the panel was dragged to (per monitor)
     "expire_days": 30,                 # delete unpinned entries older than this; 0 = never
     "paste_formatted": False,          # False: plain text by default, extra button pastes formatted
+    "hotkey": "<Super>v",              # GTK accelerator that opens the panel
     "max_html_chars": 300000,          # formatted copies larger than this are stored as plain text
     "max_text_chars": 1000000,
     "max_image_pixels": 40000000,
@@ -112,6 +113,11 @@ STRINGS = {
         "set_shortcut": "Shortcut used for pasting",
         "set_persist": "Keep the history after logging out",
         "save": "Save", "cancel": "Cancel",
+        "set_hotkey": "Shortcut to open the panel",
+        "hotkey_press": "Press the new keys…",
+        "hotkey_need_mod": "Please include Ctrl, Alt or Super (or use an F key).",
+        "hotkey_default": "Default",
+        "hotkey_unsupported": "This desktop is not supported for automatic shortcuts. Bind \"%s\" to %s in your keyboard settings.",
     },
     "de": {
         "title": "Zwischenablage",
@@ -149,6 +155,11 @@ STRINGS = {
         "set_shortcut": "Tastenkürzel zum Einfügen",
         "set_persist": "Verlauf nach dem Abmelden behalten",
         "save": "Speichern", "cancel": "Abbrechen",
+        "set_hotkey": "Tastenkürzel zum Öffnen des Fensters",
+        "hotkey_press": "Neue Tasten drücken…",
+        "hotkey_need_mod": "Bitte Strg, Alt oder Super einbeziehen (oder eine F-Taste nutzen).",
+        "hotkey_default": "Standard",
+        "hotkey_unsupported": "Dieser Desktop wird für automatische Tastenkürzel nicht unterstützt. Legen Sie \"%s\" in den Tastatureinstellungen auf %s.",
     },
 }
 
@@ -240,6 +251,10 @@ def _write_json(path, data):
 
 def save_config(cfg):
     _write_json(CONFIG_FILE, {key: cfg[key] for key in DEFAULT_CONFIG})
+
+
+def configured_hotkey(cfg):
+    return normalize_accel(cfg.get("hotkey")) or DEFAULT_HOTKEY
 
 
 def load_state():
@@ -839,12 +854,31 @@ LEGACY_CUSTOM_PATH = "/org/gnome/settings-daemon/plugins/media-keys/custom-keybi
 LEGACY_TOGGLE_COMMAND = "/usr/bin/superv-toggle"
 SHELL_SCHEMA = "org.gnome.shell.keybindings"
 SHELL_KEY = "toggle-message-tray"
-XFCE_PROPERTY = "/commands/custom/<Super>v"
+DEFAULT_HOTKEY = "<Super>v"
+XFCE_PROPERTY_PREFIX = "/commands/custom/"
 
 
 def _schema(schema_id):
     source = Gio.SettingsSchemaSource.get_default()
     return source.lookup(schema_id, True) if source else None
+
+
+def xfce_property(accel):
+    return XFCE_PROPERTY_PREFIX + accel
+
+
+def normalize_accel(accel):
+    """'<shift><Super>V' -> '<Shift><Super>v' (canonical GTK form); '' if invalid."""
+    key, mods = Gtk.accelerator_parse(accel or "")
+    if not key or not Gtk.accelerator_valid(key, mods):
+        return ""
+    return Gtk.accelerator_name(key, mods)
+
+
+def accel_label(accel):
+    """'<Super>v' -> 'Super+V' for display."""
+    key, mods = Gtk.accelerator_parse(accel)
+    return Gtk.accelerator_get_label(key, mods) if key else accel
 
 
 def _is_xfce():
@@ -859,10 +893,11 @@ def migrate_legacy_hotkey():
     """
     removed = False
     if _is_xfce() and shutil.which("xfconf-query"):
-        old = subprocess.run(["xfconf-query", "-c", "xfce4-keyboard-shortcuts", "-p", XFCE_PROPERTY],
+        prop = xfce_property(DEFAULT_HOTKEY)
+        old = subprocess.run(["xfconf-query", "-c", "xfce4-keyboard-shortcuts", "-p", prop],
                              capture_output=True, text=True).stdout.strip()
         if old == LEGACY_TOGGLE_COMMAND:
-            subprocess.call(["xfconf-query", "-c", "xfce4-keyboard-shortcuts", "-p", XFCE_PROPERTY, "-r"])
+            subprocess.call(["xfconf-query", "-c", "xfce4-keyboard-shortcuts", "-p", prop, "-r"])
             removed = True
     if _schema(MEDIA_SCHEMA) and _schema(CUSTOM_SCHEMA):
         media = Gio.Settings.new(MEDIA_SCHEMA)
@@ -878,14 +913,19 @@ def migrate_legacy_hotkey():
     return removed
 
 
-def setup_hotkey(regrab=False):
-    """Bind Super+V to the toggle command. Returns a short status string.
+def setup_hotkey(accel=DEFAULT_HOTKEY, previous=None, regrab=False):
+    """Bind accel (a GTK accelerator such as "<Super>v") to the toggle command.
 
+    Returns a short status string ("" if the desktop is not supported).
+    previous: the accelerator bound before, so Xfce can drop that entry.
     regrab: gsd-media-keys does not retry a key grab that failed while the old
-    binding still held Super+V, so clear and re-set the key to make it try again.
+    binding still held the key, so clear and re-set the key to make it try again.
     """
     if _is_xfce() and shutil.which("xfconf-query"):
-        subprocess.call(["xfconf-query", "-c", "xfce4-keyboard-shortcuts", "-p", XFCE_PROPERTY,
+        if previous and previous != accel:
+            subprocess.call(["xfconf-query", "-c", "xfce4-keyboard-shortcuts",
+                             "-p", xfce_property(previous), "-r"])
+        subprocess.call(["xfconf-query", "-c", "xfce4-keyboard-shortcuts", "-p", xfce_property(accel),
                          "-n", "-t", "string", "-s", TOGGLE_COMMAND])
         return "xfce"
     if not (_schema(MEDIA_SCHEMA) and _schema(CUSTOM_SCHEMA)):
@@ -897,26 +937,26 @@ def setup_hotkey(regrab=False):
         binding.set_string("binding", "")
         Gio.Settings.sync()
         time.sleep(0.5)
-    binding.set_string("binding", "<Super>v")
+    binding.set_string("binding", accel)
     media = Gio.Settings.new(MEDIA_SCHEMA)
     paths = list(media.get_strv("custom-keybindings"))
     if CUSTOM_PATH not in paths:
         media.set_strv("custom-keybindings", paths + [CUSTOM_PATH])
     # GNOME uses Super+V for the notification list by default (Super+M stays).
     shell_schema = _schema(SHELL_SCHEMA)
-    if shell_schema and shell_schema.has_key(SHELL_KEY):
+    if shell_schema and shell_schema.has_key(SHELL_KEY) and accel.lower() == DEFAULT_HOTKEY:
         shell = Gio.Settings.new(SHELL_SCHEMA)
         current = list(shell.get_strv(SHELL_KEY))
-        kept = [b for b in current if b.replace(" ", "").lower() != "<super>v"]
+        kept = [b for b in current if b.replace(" ", "").lower() != DEFAULT_HOTKEY]
         if kept != current:
             shell.set_strv(SHELL_KEY, kept)
     Gio.Settings.sync()
     return "gnome"
 
 
-def remove_hotkey():
+def remove_hotkey(accel=DEFAULT_HOTKEY):
     if _is_xfce() and shutil.which("xfconf-query"):
-        subprocess.call(["xfconf-query", "-c", "xfce4-keyboard-shortcuts", "-p", XFCE_PROPERTY, "-r"])
+        subprocess.call(["xfconf-query", "-c", "xfce4-keyboard-shortcuts", "-p", xfce_property(accel), "-r"])
     if _schema(MEDIA_SCHEMA) and _schema(CUSTOM_SCHEMA):
         media = Gio.Settings.new(MEDIA_SCHEMA)
         paths = list(media.get_strv("custom-keybindings"))
@@ -1869,6 +1909,25 @@ class SettingsWindow(Gtk.Window):
         self.persist = Gtk.Switch(active=cfg["persist"])
         self._add(grid, "set_persist", self.persist)
 
+        self.hotkey = configured_hotkey(cfg)
+        self._capturing = False
+        self._grab_seat = None
+        self.hotkey_button = Gtk.Button()
+        self.hotkey_button.set_size_request(150, -1)
+        self.hotkey_button.connect("clicked", self._on_hotkey_clicked)
+        self.hotkey_reset = Gtk.Button(label=_("hotkey_default"))
+        self.hotkey_reset.connect("clicked", lambda *_a: self._set_hotkey(DEFAULT_HOTKEY))
+        hotkey_box = Gtk.Box(spacing=6)
+        hotkey_box.pack_start(self.hotkey_reset, False, False, 0)
+        hotkey_box.pack_start(self.hotkey_button, False, False, 0)
+        self._add(grid, "set_hotkey", hotkey_box)
+        self.hotkey_note = Gtk.Label(label="", xalign=0, wrap=True)
+        self.hotkey_note.set_max_width_chars(48)
+        self.hotkey_note.get_style_context().add_class("dim-label")
+        grid.attach(self.hotkey_note, 0, self._line, 2, 1)
+        self._line += 1
+        self._set_hotkey(self.hotkey)
+
         buttons = Gtk.Box(spacing=8)
         buttons.set_halign(Gtk.Align.END)
         buttons.set_margin_top(8)
@@ -1882,7 +1941,10 @@ class SettingsWindow(Gtk.Window):
         grid.attach(buttons, 0, self._line, 2, 1)
 
         self.connect("key-press-event", self._on_key)
+        self.connect("focus-out-event", lambda *_a: self._end_capture())
+        self.connect("destroy", lambda *_a: self._end_capture())
         grid.show_all()
+        self.hotkey_note.hide()
 
     def _add(self, grid, label_key, control):
         label = Gtk.Label(label=_(label_key), xalign=0)
@@ -1894,10 +1956,81 @@ class SettingsWindow(Gtk.Window):
         self._line += 1
 
     def _on_key(self, _widget, event):
+        if self._capturing:
+            self._capture_key(event)
+            return True
         if event.keyval == Gdk.KEY_Escape:
             self.destroy()
             return True
         return False
+
+    # -- shortcut capture ---------------------------------------------------
+
+    _MODIFIER_KEYS = {
+        Gdk.KEY_Shift_L, Gdk.KEY_Shift_R, Gdk.KEY_Control_L, Gdk.KEY_Control_R,
+        Gdk.KEY_Alt_L, Gdk.KEY_Alt_R, Gdk.KEY_Meta_L, Gdk.KEY_Meta_R,
+        Gdk.KEY_Super_L, Gdk.KEY_Super_R, Gdk.KEY_Hyper_L, Gdk.KEY_Hyper_R,
+        Gdk.KEY_ISO_Level3_Shift, Gdk.KEY_ISO_Level5_Shift, Gdk.KEY_Mode_switch,
+        Gdk.KEY_Caps_Lock, Gdk.KEY_Num_Lock, Gdk.KEY_Scroll_Lock,
+    }
+    # Without one of these a plain key press would be taken away from normal typing.
+    _TYPING_SAFE_MODS = (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.MOD1_MASK |
+                         Gdk.ModifierType.SUPER_MASK | Gdk.ModifierType.HYPER_MASK |
+                         Gdk.ModifierType.META_MASK)
+
+    def _set_hotkey(self, accel):
+        self.hotkey = accel
+        self.hotkey_button.set_label(accel_label(accel))
+        self.hotkey_reset.set_sensitive(accel != DEFAULT_HOTKEY)
+        self.hotkey_note.hide()
+
+    def _on_hotkey_clicked(self, _button):
+        if self._capturing:
+            self._end_capture()
+            return
+        self._capturing = True
+        self.hotkey_button.set_label(_("hotkey_press"))
+        self.hotkey_note.hide()
+        # Grab the keyboard so Super+<key> reaches this window instead of the desktop.
+        gdk_window = self.get_window()
+        if gdk_window is not None:
+            seat = gdk_window.get_display().get_default_seat()
+            status = seat.grab(gdk_window, Gdk.SeatCapabilities.KEYBOARD, False, None, None, None)
+            if status == Gdk.GrabStatus.SUCCESS:
+                self._grab_seat = seat
+
+    def _end_capture(self):
+        if not self._capturing:
+            return
+        self._capturing = False
+        if self._grab_seat is not None:
+            self._grab_seat.ungrab()
+            self._grab_seat = None
+        self.hotkey_button.set_label(accel_label(self.hotkey))
+
+    def _capture_key(self, event):
+        if event.keyval in self._MODIFIER_KEYS:
+            return
+        mods = event.state & Gtk.accelerator_get_default_mod_mask()
+        if event.keyval == Gdk.KEY_Escape and not mods:
+            self._end_capture()
+            return
+        # The key without Shift etc. applied: Shift+1 is "<Shift>1", not "<Shift>exclam".
+        found, keyval, _group, _level, _consumed = Gdk.Keymap.get_for_display(
+            self.get_display()).translate_keyboard_state(event.hardware_keycode, 0, event.group)
+        keyval = Gdk.keyval_to_lower(keyval if found else event.keyval)
+        is_function_key = Gdk.KEY_F1 <= keyval <= Gdk.KEY_F35
+        if not (mods & self._TYPING_SAFE_MODS) and not is_function_key:
+            self.hotkey_note.set_text(_("hotkey_need_mod"))
+            self.hotkey_note.show()
+            return
+        accel = normalize_accel(Gtk.accelerator_name(keyval, mods))
+        if not accel:
+            self.hotkey_note.set_text(_("hotkey_need_mod"))
+            self.hotkey_note.show()
+            return
+        self._end_capture()
+        self._set_hotkey(accel)
 
     def _on_reset_positions(self, button):
         self.app.state["positions"] = {}
@@ -1915,8 +2048,12 @@ class SettingsWindow(Gtk.Window):
         cfg["paste_formatted"] = self.formatted.get_active()
         cfg["paste_shortcut"] = self.shortcut.get_active_id() or "shift+insert"
         cfg["persist"] = self.persist.get_active()
+        previous = configured_hotkey(cfg)
+        cfg["hotkey"] = self.hotkey
         save_config(cfg)
         self.app.store.apply_limits()
+        if self.hotkey != previous:
+            self.app.change_hotkey(previous, self.hotkey, self)
         self.destroy()
 
 
@@ -1937,8 +2074,8 @@ class SuperClipboard(Gtk.Application):
                 ("toggle", "t", "Show or hide the history panel"),
                 ("show", "s", "Show the history panel"),
                 ("quit", "q", "Stop the background process"),
-                ("setup-hotkey", 0, "Bind Super+V to the panel and exit"),
-                ("remove-hotkey", 0, "Remove the Super+V binding and exit"),
+                ("setup-hotkey", 0, "Bind the keyboard shortcut (default Super+V) to the panel and exit"),
+                ("remove-hotkey", 0, "Remove the keyboard shortcut and exit"),
                 ("version", "v", "Print the version and exit")):
             self.add_main_option(name, ord(char) if char else 0, GLib.OptionFlags.NONE,
                                  none, text, None)
@@ -1963,13 +2100,16 @@ class SuperClipboard(Gtk.Application):
             print(APP_NAME, VERSION, "- by", AUTHOR)
             return 0
         if options.contains("setup-hotkey"):
-            result = setup_hotkey(regrab=migrated)
-            print("Super+V is now bound to Super Clipboard." if result else
-                  "No supported desktop found - bind '%s' to Super+V manually." % TOGGLE_COMMAND)
+            accel = configured_hotkey(load_config())
+            result = setup_hotkey(accel, regrab=migrated)
+            label = accel_label(accel)
+            print("%s is now bound to Super Clipboard." % label if result else
+                  "No supported desktop found - bind '%s' to %s manually." % (TOGGLE_COMMAND, label))
             return 0 if result else 1
         if options.contains("remove-hotkey"):
-            remove_hotkey()
-            print("Super+V binding removed.")
+            accel = configured_hotkey(load_config())
+            remove_hotkey(accel)
+            print("%s binding removed." % accel_label(accel))
             return 0
         return -1
 
@@ -2033,7 +2173,7 @@ class SuperClipboard(Gtk.Application):
         if os.path.exists(HOTKEY_MARKER) and not migrated:
             return
         try:
-            result = setup_hotkey()
+            result = setup_hotkey(configured_hotkey(self.cfg))
         except GLib.Error as err:
             log("hotkey setup failed:", err.message)
             return
@@ -2044,6 +2184,20 @@ class SuperClipboard(Gtk.Application):
                     handle.write(result + "\n")
             except OSError:
                 pass
+
+    def change_hotkey(self, previous, accel, parent=None):
+        try:
+            result = setup_hotkey(accel, previous=previous)
+        except GLib.Error as err:
+            log("hotkey change failed:", err.message)
+            result = ""
+        if result:
+            return
+        dialog = Gtk.MessageDialog(transient_for=parent, modal=True, message_type=Gtk.MessageType.WARNING,
+                                   buttons=Gtk.ButtonsType.OK,
+                                   text=_("hotkey_unsupported") % (TOGGLE_COMMAND, accel_label(accel)))
+        dialog.run()
+        dialog.destroy()
 
     def _follow_color_scheme(self):
         schema = _schema("org.gnome.desktop.interface")

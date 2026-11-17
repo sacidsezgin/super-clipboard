@@ -6,7 +6,7 @@ Nov 16, 2026 · @sacidsezgin
 
 Super Clipboard shows your clipboard history when you press Super+V, just like Win+V on Windows 11. It runs on Zorin OS and other Ubuntu desktops (GNOME on Wayland or X11, Xfce) and comes as a single .deb package.
 
-This documentation describes version 1.3.1 by Sacid Sezgin. The program is written in Python with GTK 3 and licensed under the MIT license.
+This documentation describes version 1.4.0 by Sacid Sezgin. The program is written in Python with GTK 3 and licensed under the MIT license.
 
 - Remembers text and images, the last 50 entries by default.
 - Pastes the chosen entry straight into the window you are working in.
@@ -23,7 +23,7 @@ This documentation describes version 1.3.1 by Sacid Sezgin. The program is writt
 One command installs Super Clipboard with its dependencies; after that a first start is all it takes for Super+V to work.
 
 ```
-sudo apt install ./super-clipboard_1.3.1_all.deb
+sudo apt install ./super-clipboard_1.4.0_all.deb
 super-clipboard --show
 ```
 
@@ -35,7 +35,7 @@ Instead of `super-clipboard --show` you can also open "Super Clipboard" from the
 - libglib2.0-bin, hicolor-icon-theme
 - recommended: xwayland, udev, kmod, appstream; optional: xdotool
 
-**The keyboard shortcut.** On GNOME, Super+V is created as a custom shortcut named "Super Clipboard History". GNOME's own binding of Super+V (notification list) is released; Super+M still opens it. On Xfce, Super Clipboard registers the shortcut through `xfconf`. If Super+V does nothing, run `super-clipboard --setup-hotkey`.
+**The keyboard shortcut.** On GNOME, Super+V is created as a custom shortcut named "Super Clipboard History". GNOME's own binding of Super+V (notification list) is released; Super+M still opens it. On Xfce, Super Clipboard registers the shortcut through `xfconf`. To use a different key combination, open the settings (gear), click the button next to "Shortcut to open the panel", press the new keys and then "Save"; Esc cancels the capture and "Default" restores Super+V. The combination needs Ctrl, Alt or Super (or an F key). If the shortcut does nothing, run `super-clipboard --setup-hotkey`.
 
 **Access to /dev/uinput.** Super Clipboard sends the paste key through a virtual keyboard. For this the package installs a udev rule that gives the locally logged-in user access to /dev/uinput, and loads the `uinput` module. This also means that any program running under your user can generate key presses. After installing, log out and back in once if pasting does not work right away.
 
@@ -149,6 +149,7 @@ The most important settings are in the settings window (gear in the window heade
 | `paste_shortcut` | `shift+insert` | Key that Super Clipboard sends to paste: `shift+insert`, `ctrl+v` or `ctrl+shift+v`. Window: "Shortcut used for pasting" |
 | `paste_formatted` | false | Paste with formatting by default. Window: "Paste with formatting by default" |
 | `persist` | true | Keep the history after logging out. Window: "Keep the history after logging out" |
+| `hotkey` | `<Super>v` | Keyboard shortcut that opens the window, as a GTK accelerator such as `<Primary><Alt>k`. Window: "Shortcut to open the panel" |
 | `position` | `auto` | `auto` = centered on the monitor, `pointer` = at the mouse pointer (X11 only); file only |
 | `max_text_chars` | 1000000 | longer texts are not recorded; file only |
 | `max_image_pixels` | 40000000 | images with more pixels (width times height) are not recorded; file only |
@@ -190,7 +191,7 @@ All commands go through the `super-clipboard` program and talk to the background
 | `super-clipboard --show` (`-s`) | show the window; starts the process if it is not running |
 | `super-clipboard --toggle` (`-t`) | show or hide the window |
 | `super-clipboard --quit` (`-q`) | end the background process and save the history |
-| `super-clipboard --setup-hotkey` | (re)register Super+V as the keyboard shortcut |
+| `super-clipboard --setup-hotkey` | (re)register the keyboard shortcut (Super+V unless changed in the settings) |
 | `super-clipboard --remove-hotkey` | remove the keyboard shortcut and give Super+V back to GNOME |
 | `super-clipboard --version` (`-v`) | print the version |
 | `super-clipboard-toggle` | called by the keyboard shortcut; toggles the window over D-Bus and starts Super Clipboard if it is not running |
@@ -269,7 +270,7 @@ The first command gives Super+V back to GNOME. The last line deletes history and
 The source archive builds a .deb with a single script; besides the standard tools it only needs `dpkg-deb`.
 
 ```
-tar xzf super-clipboard-1.3.1-source.tar.gz
+tar xzf super-clipboard-1.4.0-source.tar.gz
 cd super-clipboard
 ./build.sh
 ```
@@ -297,8 +298,8 @@ The result is at `build/super-clipboard_<version>_all.deb`. The script reads the
 
 | Version | Date | Changes |
 | --- | --- | --- |
-| 1.3.1 | 2026-11-16 | English is the default interface language, German follows a German system language; language detection follows gettext rules; documentation in English |
-| 1.3.1 | 2026-11-16 | Preview with editing (space bar); pasting with or without formatting, button next to the pin and a setting; release notes for the software center |
+| 1.4.0 | 2026-11-16 | English is the default interface language, German follows a German system language; language detection follows gettext rules; documentation in English |
+| 1.4.0 | 2026-11-16 | Preview with editing (space bar); pasting with or without formatting, button next to the pin and a setting; release notes for the software center |
 | 1.1.1 | 2026-11-16 | Window no longer flashes before it is placed; Ctrl+number waits for Ctrl to be released; "URLs" tab; names such as `Mobile_pos2` no longer count as a password |
 | 1.1.0 | 2026-11-16 | Quick selection with Ctrl+1 to 9; time per entry; remember position per monitor; automatic deletion; Text, Code, Sensitive, Images tabs with masking; settings window |
 | 1.0.7 | 2026-11-13 | Version number centered in the window header |

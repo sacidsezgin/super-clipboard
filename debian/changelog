@@ -1,5 +1,7 @@
-super-clipboard (1.3.1) unstable; urgency=medium
+super-clipboard (1.4.0) unstable; urgency=medium
 
+  * The keyboard shortcut that opens the panel can be changed in the settings:
+    click the button, press the new key combination, Save.
   * Renamed the product from SuperV to Super Clipboard: package, command
     (super-clipboard, super-clipboard-toggle), application ID
     (org.super_clipboard.Clipboard), icons and the data/config folders

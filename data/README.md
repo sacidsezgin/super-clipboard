@@ -68,6 +68,8 @@ The gear button in the panel opens a settings window. Everything is stored in
 
 - `max_items` - entries kept, pinned ones not counted (default 50)
 - `persist` - keep the history across logins (default true)
+- `hotkey` - shortcut that opens the panel, as a GTK accelerator (default `<Super>v`);
+  easiest to change with the "Shortcut to open the panel" button in the settings window
 - `paste_on_select` - paste right away; false only copies (default true)
 - `paste_shortcut` - `shift+insert` (default, also works in terminals),
   `ctrl+v` or `ctrl+shift+v`
