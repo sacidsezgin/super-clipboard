@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Super Clipboard</vendor>
+  <vendor_url>https://github.com/sacidsezgin/super-clipboard</vendor_url>
+  <icon_name>org.super_clipboard.Clipboard</icon_name>
+
+  <action id="org.super_clipboard.Clipboard.update">
+    <description>Install a Super Clipboard update</description>
+    <description xml:lang="de">Ein Update für Super Clipboard installieren</description>
+    <message>Authentication is required to install the Super Clipboard update.</message>
+    <message xml:lang="de">Zum Installieren des Updates für Super Clipboard ist eine Legitimierung erforderlich.</message>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/super-clipboard/install-update</annotate>
+  </action>
+</policyconfig>

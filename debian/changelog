@@ -1,7 +1,43 @@
+super-clipboard (1.6.0) unstable; urgency=medium
+
+  * Updates: Super Clipboard looks for new releases on GitHub at startup and
+    every 12 hours. A notification and a bar in the panel offer "Update",
+    which downloads the package, checks its SHA-256 checksum and installs it
+    after asking for an administrator password; the new version then starts
+    by itself. "Check for updates automatically" in the settings turns the
+    check off; super-clipboard --check-update checks from a terminal.
+  * Every fix and feature pushed to GitHub is published as a release with the
+    .deb attached.
+  * The history is saved when the process is stopped, for example by an
+    upgrade.
+
+ -- Sacid Sezgin <noreply@localhost>  Wed, 18 Nov 2026 19:44:27 +0100
+
 super-clipboard (1.5.0) unstable; urgency=medium
+
+  * New "Pinned" tab, shown as the pin icon: all pinned entries of every kind,
+    the most recently pinned first. In the other tabs pinned entries keep
+    their normal place in the history.
+
+ -- Sacid Sezgin <noreply@localhost>  Tue, 17 Nov 2026 17:19:51 +0100
+
+super-clipboard (1.4.0) unstable; urgency=medium
 
   * The keyboard shortcut that opens the panel can be changed in the settings:
     click the button, press the new key combination, Save.
+
+ -- Sacid Sezgin <noreply@localhost>  Tue, 17 Nov 2026 16:07:47 +0100
+
+super-clipboard (1.3.1) unstable; urgency=medium
+
+  * Fix: the old SuperV Super+V shortcut (pointing at the removed superv-toggle)
+    is removed on first start, so it no longer shadows the new one.
+  * Fix: the panel's shadow stays inside the window and is no longer cut off.
+
+ -- Sacid Sezgin <noreply@localhost>  Tue, 17 Nov 2026 14:58:26 +0100
+
+super-clipboard (1.3.0) unstable; urgency=medium
+
   * Renamed the product from SuperV to Super Clipboard: package, command
     (super-clipboard, super-clipboard-toggle), application ID
     (org.super_clipboard.Clipboard), icons and the data/config folders
@@ -10,12 +46,10 @@ super-clipboard (1.5.0) unstable; urgency=medium
     language is German. Language detection now follows gettext rules
     (LC_ALL, LC_MESSAGES, LANG, LANGUAGE preference list; C/POSIX = English).
   * Documentation (README) is now in English.
-  * Fix: the old SuperV Super+V shortcut (pointing at the removed superv-toggle)
-    is removed on first start, so it no longer shadows the new one.
 
  -- Sacid Sezgin <noreply@localhost>  Mon, 16 Nov 2026 18:00:00 +0100
 
-superv (1.3.0) unstable; urgency=medium
+superv (1.2.0) unstable; urgency=medium
 
   * Preview: Space shows the full text or the image large; text can be edited
     before it is pasted (Ctrl+Enter). Sensitive entries stay masked until

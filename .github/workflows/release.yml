@@ -1,0 +1,80 @@
+name: Release
+
+# Every push to main with a fix:, feat: or breaking-change commit becomes a
+# GitHub release vX.Y.Z with the .deb attached. Other commit types (chore,
+# docs, refactor, ci, ...) do not release. The rules are in tools/release.py.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# One release at a time; a push that arrives meanwhile waits for its turn.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Check the sources
+        run: |
+          python3 -B -c 'import ast, sys; [ast.parse(open(p, encoding="utf-8").read(), p) for p in sys.argv[1:]]' \
+            src/super-clipboard tools/release.py
+          for script in build.sh src/super-clipboard-toggle src/super-clipboard-install-update debian/postinst debian/prerm debian/postrm; do
+            sh -n "$script"
+          done
+
+      - name: Work out the next version
+        id: plan
+        run: python3 -B tools/release.py --notes "$RUNNER_TEMP/release-notes.md"
+
+      - name: Build the package
+        if: steps.plan.outputs.release == 'true'
+        env:
+          RELEASE_VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          ./build.sh
+          deb="super-clipboard_${RELEASE_VERSION}_all.deb"
+          test -f "build/$deb"
+          dpkg-deb --info "build/$deb"
+          (cd build && sha256sum "$deb" > "$deb.sha256")
+
+      - name: Commit the new version
+        id: push
+        if: steps.plan.outputs.release == 'true'
+        env:
+          TAG: ${{ steps.plan.outputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git diff --quiet || git commit -am "chore(release): $TAG"
+          if git push origin HEAD:main; then
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::main moved on while $TAG was prepared; the run for the newer push releases it."
+          fi
+
+      - name: Publish the GitHub release
+        if: steps.push.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.plan.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          gh release create "$TAG" \
+            "build/super-clipboard_${RELEASE_VERSION}_all.deb" \
+            "build/super-clipboard_${RELEASE_VERSION}_all.deb.sha256" \
+            --target "$(git rev-parse HEAD)" \
+            --title "Super Clipboard $TAG" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --latest

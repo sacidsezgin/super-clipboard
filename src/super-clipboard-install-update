@@ -1,0 +1,29 @@
+#!/bin/sh
+# Installs a Super Clipboard update that the program downloaded and checked.
+# Runs as root through pkexec (polkit action org.super_clipboard.Clipboard.update),
+# which asks for an administrator password first.
+set -eu
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+
+if [ $# -ne 1 ] || [ ! -f "$1" ]; then
+    echo "usage: install-update FILE.deb" >&2
+    exit 2
+fi
+
+# Work on a private copy so the file cannot change between the check and the install;
+# apt's _apt user must be able to read it.
+work=$(mktemp -d /tmp/super-clipboard-update.XXXXXX)
+trap 'rm -rf "$work"' EXIT
+cp -- "$1" "$work/update.deb"
+chmod 755 "$work"
+chmod 644 "$work/update.deb"
+
+package=$(dpkg-deb --field "$work/update.deb" Package)
+if [ "$package" != "super-clipboard" ]; then
+    echo "not a Super Clipboard package: $1" >&2
+    exit 3
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get install -y -o DPkg::Lock::Timeout=120 "$work/update.deb"

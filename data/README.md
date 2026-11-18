@@ -59,6 +59,7 @@ Pasting inserts the real value, and the history file still holds it in full
     super-clipboard --setup-hotkey  bind Super+V again
     super-clipboard --remove-hotkey remove the binding, give Super+V back to GNOME
     super-clipboard --quit          stop the background process
+    super-clipboard --check-update  ask GitHub whether a newer version exists
 
 ## Settings
 
@@ -79,6 +80,8 @@ The gear button in the panel opens a settings window. Everything is stored in
 - `paste_formatted` - paste with formatting by default (default false)
 - `expire_days` - delete unpinned entries older than this many days; 0 = never
   (default 30)
+- `check_updates` - look for new releases on GitHub at startup and every 12 hours
+  (default true)
 
 The history is stored in `~/.local/share/super-clipboard/` (readable by you only).
 
@@ -90,6 +93,16 @@ The history is stored in `~/.local/share/super-clipboard/` (readable by you only
   own Super+V (notification list) is released, Super+M keeps doing that.
 - Pasting sends the shortcut through a virtual keyboard (`/dev/uinput`).
   The package installs a udev rule that grants this to the local seat user.
+
+## Updates
+
+Super Clipboard asks GitHub for the newest release shortly after it starts and
+then every 12 hours; that request is its only network connection. When there
+is a newer version, a notification and a bar at the top of the panel offer an
+"Update" button. It downloads the .deb, checks its SHA-256 checksum and
+installs it after asking for an administrator password (pkexec); the new
+version then starts by itself. Turn the check off with "Check for updates
+automatically" in the settings. Releases: https://github.com/sacidsezgin/super-clipboard/releases
 
 ## Uninstall
 

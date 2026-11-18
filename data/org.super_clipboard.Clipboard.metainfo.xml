@@ -29,30 +29,54 @@
   </categories>
   <content_rating type="oars-1.1"/>
   <releases>
-    <release version="@VERSION@" date="2026-11-16">
+    <release version="1.6.0" date="2026-11-18">
       <description>
-        <p>English is now the default interface language; German is used when the system language is German.</p>
-        <p xml:lang="de">Englisch ist jetzt die Standardsprache der Oberfläche; Deutsch wird verwendet, wenn die Systemsprache Deutsch ist.</p>
+        <p>Super Clipboard now finds new versions on GitHub and installs them with one click, after asking for an administrator password.</p>
+        <p xml:lang="de">Super Clipboard findet neue Versionen jetzt selbst auf GitHub und installiert sie mit einem Klick; dafür wird nach dem Administratorpasswort gefragt.</p>
       </description>
     </release>
-    <release version="1.5.0" date="2026-11-16">
-        <description>
-          <p>New: preview with editing (Space), paste with or without formatting, URLs tab, Ctrl+1-9 quick pick, per-monitor position memory, automatic expiry and a settings window.</p>
-          <p xml:lang="de">Neu: Vorschau mit Bearbeiten (Leertaste), Einfügen mit oder ohne Formatierung, URL-Reiter, Schnellwahl mit Strg+1-9, Fensterposition pro Monitor, automatisches Löschen und ein Einstellungsfenster.</p>
-        </description>
-      </release>
-      <release version="1.1.1" date="2026-11-16">
-        <description>
-          <p>Panel no longer flashes before it is in place; Ctrl+number waits until Ctrl is released; names like Mobile_pos2 are no longer treated as passwords.</p>
-          <p xml:lang="de">Das Fenster blitzt nicht mehr auf, bevor es an seinem Platz ist; Strg+Zahl wartet, bis Strg losgelassen ist; Namen wie Mobile_pos2 gelten nicht mehr als Passwort.</p>
-        </description>
-      </release>
-      <release version="1.1.0" date="2026-11-16">
-        <description>
-          <p>Tabs (Text, Code, Sensitive, Images), timestamps, quick pick, position memory, expiry and settings.</p>
-          <p xml:lang="de">Reiter (Text, Code, Sensibel, Bilder), Zeitangaben, Schnellwahl, Positionsspeicher, automatisches Löschen und Einstellungen.</p>
-        </description>
-      </release>
-      <release version="1.0.7" date="2026-11-13"/>
+    <release version="1.5.0" date="2026-11-17">
+      <description>
+        <p>New Pinned tab (pin icon) with all pinned entries, the most recently pinned first.</p>
+        <p xml:lang="de">Neuer Reiter „Angeheftet“ (Pinnnadel) mit allen angehefteten Einträgen, die zuletzt angehefteten zuerst.</p>
+      </description>
+    </release>
+    <release version="1.4.0" date="2026-11-17">
+      <description>
+        <p>The shortcut that opens the panel can now be changed in the settings.</p>
+        <p xml:lang="de">Das Tastenkürzel zum Öffnen des Fensters lässt sich jetzt in den Einstellungen ändern.</p>
+      </description>
+    </release>
+    <release version="1.3.1" date="2026-11-17">
+      <description>
+        <p>The old SuperV shortcut is removed so it no longer blocks Super+V; the panel shadow is no longer cut off.</p>
+        <p xml:lang="de">Das alte SuperV-Tastenkürzel wird entfernt und blockiert Super+V nicht mehr; der Fensterschatten wird nicht mehr abgeschnitten.</p>
+      </description>
+    </release>
+    <release version="1.3.0" date="2026-11-16">
+      <description>
+        <p>SuperV is now called Super Clipboard. English is now the default interface language; German is used when the system language is German.</p>
+        <p xml:lang="de">SuperV heißt jetzt Super Clipboard. Englisch ist jetzt die Standardsprache der Oberfläche; Deutsch wird verwendet, wenn die Systemsprache Deutsch ist.</p>
+      </description>
+    </release>
+    <release version="1.2.0" date="2026-11-16">
+      <description>
+        <p>New: preview with editing (Space), paste with or without formatting, URLs tab, Ctrl+1-9 quick pick, per-monitor position memory, automatic expiry and a settings window.</p>
+        <p xml:lang="de">Neu: Vorschau mit Bearbeiten (Leertaste), Einfügen mit oder ohne Formatierung, URL-Reiter, Schnellwahl mit Strg+1-9, Fensterposition pro Monitor, automatisches Löschen und ein Einstellungsfenster.</p>
+      </description>
+    </release>
+    <release version="1.1.1" date="2026-11-16">
+      <description>
+        <p>Panel no longer flashes before it is in place; Ctrl+number waits until Ctrl is released; names like Mobile_pos2 are no longer treated as passwords.</p>
+        <p xml:lang="de">Das Fenster blitzt nicht mehr auf, bevor es an seinem Platz ist; Strg+Zahl wartet, bis Strg losgelassen ist; Namen wie Mobile_pos2 gelten nicht mehr als Passwort.</p>
+      </description>
+    </release>
+    <release version="1.1.0" date="2026-11-16">
+      <description>
+        <p>Tabs (Text, Code, Sensitive, Images), timestamps, quick pick, position memory, expiry and settings.</p>
+        <p xml:lang="de">Reiter (Text, Code, Sensibel, Bilder), Zeitangaben, Schnellwahl, Positionsspeicher, automatisches Löschen und Einstellungen.</p>
+      </description>
+    </release>
+    <release version="1.0.7" date="2026-11-13"/>
   </releases>
 </component>

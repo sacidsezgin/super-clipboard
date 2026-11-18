@@ -12,15 +12,20 @@ clipboard and pastes it into the window you were working in.
 import datetime
 import fcntl
 import hashlib
+import http.client
 import json
 import locale
 import os
 import re
 import shutil
+import signal
 import struct
 import subprocess
 import sys
+import threading
 import time
+import urllib.error
+import urllib.request
 
 # The watcher has to see clipboard changes made in *other* windows. On a GNOME
 # Wayland session only X11 (XWayland) clients are told about those, so X11 is
@@ -45,8 +50,9 @@ except (ValueError, ImportError):
     GdkX11 = None
 
 APP_ID = "org.super_clipboard.Clipboard"
+APP_PATH = "/org/super_clipboard/Clipboard"   # D-Bus object path GApplication derives from APP_ID
 APP_NAME = "Super Clipboard"
-VERSION = "1.5.0"
+VERSION = "1.6.0"
 AUTHOR = "Sacid Sezgin"
 TOGGLE_COMMAND = "/usr/bin/super-clipboard-toggle"
 
@@ -68,6 +74,7 @@ DEFAULT_CONFIG = {
     "expire_days": 30,                 # delete unpinned entries older than this; 0 = never
     "paste_formatted": False,          # False: plain text by default, extra button pastes formatted
     "hotkey": "<Super>v",              # GTK accelerator that opens the panel
+    "check_updates": True,             # look for new releases on GitHub
     "max_html_chars": 300000,          # formatted copies larger than this are stored as plain text
     "max_text_chars": 1000000,
     "max_image_pixels": 40000000,
@@ -120,6 +127,22 @@ STRINGS = {
         "hotkey_need_mod": "Please include Ctrl, Alt or Super (or use an F key).",
         "hotkey_default": "Default",
         "hotkey_unsupported": "This desktop is not supported for automatic shortcuts. Bind \"%s\" to %s in your keyboard settings.",
+        "set_updates": "Check for updates automatically",
+        "upd_check": "Check now", "upd_install": "Update", "upd_install_to": "Update to %s",
+        "upd_retry": "Try again",
+        "upd_idle": "Installed version: %s",
+        "upd_checking": "Looking for updates…",
+        "upd_current": "Super Clipboard %s is up to date.",
+        "upd_failed": "Could not check for updates: %s",
+        "upd_available": "Version %s is available.",
+        "upd_downloading": "Downloading version %s…",
+        "upd_installing": "Installing version %s…",
+        "upd_install_failed": "Update failed: %s",
+        "upd_not_allowed": "not authorized",
+        "upd_note_title": "Super Clipboard %s is available",
+        "upd_note_body": "Install the update now? You will be asked for your password.",
+        "upd_done_title": "Super Clipboard was updated to %s",
+        "upd_failed_title": "Super Clipboard could not be updated",
     },
     "de": {
         "title": "Zwischenablage",
@@ -164,6 +187,22 @@ STRINGS = {
         "hotkey_need_mod": "Bitte Strg, Alt oder Super einbeziehen (oder eine F-Taste nutzen).",
         "hotkey_default": "Standard",
         "hotkey_unsupported": "Dieser Desktop wird für automatische Tastenkürzel nicht unterstützt. Legen Sie \"%s\" in den Tastatureinstellungen auf %s.",
+        "set_updates": "Automatisch nach Updates suchen",
+        "upd_check": "Jetzt suchen", "upd_install": "Aktualisieren", "upd_install_to": "Auf %s aktualisieren",
+        "upd_retry": "Erneut versuchen",
+        "upd_idle": "Installierte Version: %s",
+        "upd_checking": "Suche nach Updates…",
+        "upd_current": "Super Clipboard %s ist aktuell.",
+        "upd_failed": "Suche nach Updates fehlgeschlagen: %s",
+        "upd_available": "Version %s ist verfügbar.",
+        "upd_downloading": "Version %s wird heruntergeladen…",
+        "upd_installing": "Version %s wird installiert…",
+        "upd_install_failed": "Update fehlgeschlagen: %s",
+        "upd_not_allowed": "keine Berechtigung",
+        "upd_note_title": "Super Clipboard %s ist verfügbar",
+        "upd_note_body": "Das Update jetzt installieren? Dabei wird nach Ihrem Passwort gefragt.",
+        "upd_done_title": "Super Clipboard wurde auf %s aktualisiert",
+        "upd_failed_title": "Super Clipboard konnte nicht aktualisiert werden",
     },
 }
 
@@ -987,6 +1026,311 @@ def remove_hotkey(accel=DEFAULT_HOTKEY):
         pass
 
 
+# -------------------------------------------------------------- updates ----
+# Every release is published on GitHub with the .deb attached. The background
+# process looks for a newer one shortly after it starts and then every 12 hours.
+# Installing runs a small root helper through pkexec, which asks for an
+# administrator password, and then starts the new version.
+
+UPDATE_REPO = "sacidsezgin/super-clipboard"
+UPDATE_API = "https://api.github.com/repos/%s/releases/latest" % UPDATE_REPO
+UPDATE_PAGE = "https://github.com/%s/releases/latest" % UPDATE_REPO
+UPDATE_DOWNLOADS = "https://github.com/%s/releases/download/" % UPDATE_REPO
+UPDATE_HELPER = "/usr/lib/super-clipboard/install-update"
+UPDATE_DIR = os.path.join(GLib.get_user_cache_dir(), "super-clipboard", "updates")
+UPDATE_LOG = os.path.join(UPDATE_DIR, "install.log")
+UPDATE_FIRST_CHECK = 90            # seconds after startup
+UPDATE_INTERVAL = 12 * 3600        # seconds between two automatic checks
+UPDATE_MAX_BYTES = 50 * 1024 * 1024
+UPDATE_ERRORS = (OSError, ValueError, KeyError, TypeError, AttributeError, http.client.HTTPException)
+
+# Runs detached, so it outlives this process, which the upgrade stops (prerm):
+# install, make sure the old process is gone, then start the new version.
+UPDATE_SCRIPT = """
+pkexec "$1" "$2" || exit $?
+gdbus call --session --timeout 3 --dest "$3" --object-path "$4" \\
+    --method org.gtk.Actions.Activate quit '[]' '{}' >/dev/null 2>&1
+sleep 1
+exec /usr/bin/super-clipboard
+"""
+
+
+class UpdateError(Exception):
+    pass
+
+
+def parse_version(text):
+    """'v1.6.0' or '1.6.0' -> (1, 6, 0); None if it is no version number."""
+    match = re.match(r"v?(\d+)\.(\d+)\.(\d+)", text.strip()) if isinstance(text, str) else None
+    return tuple(int(part) for part in match.groups()) if match else None
+
+
+CURRENT_VERSION = parse_version(VERSION) or (0, 0, 0)
+
+
+def _http_get(url, timeout):
+    request = urllib.request.Request(url, headers={
+        "User-Agent": "super-clipboard/" + VERSION,
+        "Accept": "application/vnd.github+json" if url == UPDATE_API else "*/*",
+    })
+    return urllib.request.urlopen(request, timeout=timeout)
+
+
+def error_text(err):
+    if isinstance(err, urllib.error.HTTPError):
+        return "HTTP %d %s" % (err.code, err.reason)
+    if isinstance(err, urllib.error.URLError):
+        return str(err.reason)
+    return str(err) or err.__class__.__name__
+
+
+def fetch_latest_release():
+    """Ask GitHub for the newest release (blocking): a dict, None if there is none yet."""
+    try:
+        with _http_get(UPDATE_API, 20) as response:
+            release = json.loads(response.read(2 * 1024 * 1024).decode("utf-8"))
+    except urllib.error.HTTPError as err:
+        if err.code == 404:
+            return None
+        raise
+    version = parse_version(release.get("tag_name"))
+    if version is None:
+        raise UpdateError("the latest release has no version number")
+    name = "super-clipboard_%d.%d.%d_all.deb" % version
+    assets = {asset.get("name"): asset for asset in release.get("assets") or () if isinstance(asset, dict)}
+    deb = assets.get(name) or {}
+    digest = deb.get("digest") or ""
+    page = release.get("html_url") or ""
+    return {
+        "version": version,
+        "label": "%d.%d.%d" % version,
+        "page": page if page.startswith("https://github.com/") else UPDATE_PAGE,
+        "url": deb.get("browser_download_url"),
+        "sha256": digest[7:].lower() if digest.startswith("sha256:") else None,
+        "sha256_url": (assets.get(name + ".sha256") or {}).get("browser_download_url"),
+    }
+
+
+def download_release(release):
+    """Download the release's .deb (blocking), check its SHA-256, return its path."""
+    def official(url):
+        return isinstance(url, str) and url.startswith(UPDATE_DOWNLOADS)
+
+    if not official(release["url"]):
+        raise UpdateError("the release has no .deb package")
+    expected = release["sha256"]
+    if not expected and official(release["sha256_url"]):
+        with _http_get(release["sha256_url"], 20) as response:
+            words = response.read(4096).decode("ascii", "replace").split()
+        expected = words[0].lower() if words else ""
+    if not expected or not re.fullmatch(r"[0-9a-f]{64}", expected):
+        raise UpdateError("the release has no checksum")
+    os.makedirs(UPDATE_DIR, mode=0o700, exist_ok=True)
+    for old in os.listdir(UPDATE_DIR):
+        if old.endswith((".deb", ".part")):
+            os.unlink(os.path.join(UPDATE_DIR, old))
+    path = os.path.join(UPDATE_DIR, "super-clipboard_%s_all.deb" % release["label"])
+    digest = hashlib.sha256()
+    size = 0
+    with _http_get(release["url"], 60) as response, open(path + ".part", "wb") as out:
+        while True:
+            chunk = response.read(65536)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > UPDATE_MAX_BYTES:
+                raise UpdateError("the download is too large")
+            digest.update(chunk)
+            out.write(chunk)
+    if digest.hexdigest() != expected:
+        os.unlink(path + ".part")
+        raise UpdateError("the download is damaged (checksum mismatch)")
+    os.replace(path + ".part", path)
+    return path
+
+
+class Updater:
+    """Finds newer releases and installs them on request.
+
+    status is one of "idle", "checking", "current", "available", "failed"
+    (the check), "downloading", "installing", "install_failed". Network work
+    runs in a thread; its result comes back to the main loop via GLib.idle_add.
+    Listeners are called on every change."""
+
+    BUSY = ("checking", "downloading", "installing")
+
+    def __init__(self, app):
+        self.app = app
+        self.status = "idle"
+        self.release = None          # the newer release, once one was found
+        self.error = ""
+        self.listeners = []
+        self._last_check = None
+        self._install_after_check = False
+
+    @property
+    def busy(self):
+        return self.status in self.BUSY
+
+    def start(self):
+        GLib.timeout_add_seconds(UPDATE_FIRST_CHECK, self._first_tick)
+        GLib.timeout_add_seconds(3600, self._hourly_tick)
+
+    def _first_tick(self):
+        self._maybe_check()
+        return False
+
+    def _hourly_tick(self):
+        self._maybe_check()
+        return True
+
+    def _maybe_check(self):
+        # Wall-clock time, so a laptop that sleeps a lot still checks twice a day.
+        due = self._last_check is None or not 0 <= time.time() - self._last_check < UPDATE_INTERVAL
+        if self.app.cfg["check_updates"] and due:
+            self.check()
+
+    def _set(self, status):
+        self.status = status
+        for listener in list(self.listeners):
+            listener()
+
+    def _in_thread(self, work, done, failed, *args):
+        def run():
+            try:
+                result = work(*args)
+            except Exception as err:  # noqa: BLE001 - every failure must reach the UI, or it stays "busy"
+                GLib.idle_add(failed, error_text(err))
+            else:
+                GLib.idle_add(done, result)
+        threading.Thread(target=run, daemon=True).start()
+
+    # -- checking -----------------------------------------------------------
+
+    def check(self, install=False):
+        if self.busy:
+            return
+        self._last_check = time.time()
+        self._install_after_check = install
+        self._set("checking")
+        self._in_thread(fetch_latest_release, self._on_checked, self._on_check_failed)
+
+    def _on_checked(self, release):
+        if release is not None and release["version"] > CURRENT_VERSION:
+            self.release = release
+            self._set("available")
+            self._notify_available()
+            if self._install_after_check:
+                self.install()
+        else:
+            self.release = None
+            self._set("current")
+
+    def _on_check_failed(self, error):
+        log("update check failed:", error)
+        if self._install_after_check:   # "Update" was pressed: say why nothing happens
+            self._on_install_failed(error)
+            return
+        self.error = error
+        self._set("available" if self.release else "failed")
+
+    def _notify_available(self):
+        label = self.release["label"]
+        if self.app.state.get("update_notified") == label:
+            return
+        self.app.state["update_notified"] = label
+        save_state(self.app.state)
+        note = Gio.Notification.new(_("upd_note_title") % label)
+        note.set_body(_("upd_note_body"))
+        note.set_icon(Gio.ThemedIcon.new(APP_ID))
+        note.set_default_action("app.show")
+        note.add_button(_("upd_install"), "app.install-update")
+        self.app.send_notification("update", note)
+
+    # -- installing ---------------------------------------------------------
+
+    def install(self):
+        if self.busy:
+            return
+        if self.release is None:
+            self.check(install=True)
+            return
+        if not (os.access(UPDATE_HELPER, os.X_OK) and shutil.which("pkexec")):
+            self.open_release_page()    # not installed as a package: let the user download it
+            return
+        self.app.withdraw_notification("update")
+        self._set("downloading")
+        self._in_thread(self._download_and_install, self._on_installed, self._on_install_failed,
+                        self.release)
+
+    def _download_and_install(self, release):
+        """Runs in the worker thread; returns the exit status of the install."""
+        path = download_release(release)
+        GLib.idle_add(self._set, "installing")
+        # Output goes to a file, not a pipe: the install outlives this process.
+        with open(UPDATE_LOG, "wb") as output:
+            return subprocess.call(["/bin/sh", "-c", UPDATE_SCRIPT, "sh", UPDATE_HELPER, path, APP_ID, APP_PATH],
+                                   stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
+                                   start_new_session=True)
+
+    def _on_installed(self, code):
+        if code == 0:
+            # Normally the upgrade has stopped this process already; if not, hand over.
+            subprocess.Popen(["/bin/sh", "-c", "sleep 1; exec /usr/bin/super-clipboard"],
+                             stdin=subprocess.DEVNULL, start_new_session=True)
+            self.app.quit()
+        elif code == 126:               # the password dialog was dismissed
+            self._set("available")
+        else:
+            self._on_install_failed(self._log_tail() or
+                                    (_("upd_not_allowed") if code == 127 else "exit status %d" % code))
+
+    def _on_install_failed(self, error):
+        log("update failed:", error)
+        self.error = error
+        self._set("install_failed")
+        note = Gio.Notification.new(_("upd_failed_title"))
+        note.set_body(error)
+        note.set_icon(Gio.ThemedIcon.new(APP_ID))
+        note.set_default_action("app.show")
+        self.app.send_notification("update", note)
+
+    @staticmethod
+    def _log_tail():
+        try:
+            with open(UPDATE_LOG, encoding="utf-8", errors="replace") as handle:
+                lines = [line.strip() for line in handle if line.strip()]
+        except OSError:
+            return ""
+        return lines[-1][:200] if lines else ""
+
+    def open_release_page(self):
+        page = self.release["page"] if self.release else UPDATE_PAGE
+        try:
+            Gtk.show_uri_on_window(None, page, Gdk.CURRENT_TIME)
+        except GLib.Error as err:
+            log("could not open %s:" % page, err.message)
+
+    # -- text for the panel and the settings window -------------------------
+
+    def text(self, markup=False):
+        label = self.release["label"] if self.release else ""
+        if markup and self.status == "available" and self.release:
+            link = '<a href="%s">%s</a>' % (GLib.markup_escape_text(self.release["page"]), label)
+            return GLib.markup_escape_text(_("upd_available")) % link
+        text = {
+            "idle": _("upd_idle") % VERSION,
+            "checking": _("upd_checking"),
+            "current": _("upd_current") % VERSION,
+            "failed": _("upd_failed") % self.error,
+            "available": _("upd_available") % label,
+            "downloading": _("upd_downloading") % label,
+            "installing": _("upd_installing") % label,
+            "install_failed": _("upd_install_failed") % self.error,
+        }[self.status]
+        return GLib.markup_escape_text(text) if markup else text
+
+
 # ------------------------------------------------------------------- UI ----
 
 CSS = b"""
@@ -1071,6 +1415,14 @@ CSS = b"""
 .super-clipboard-previewtext, .super-clipboard-previewtext text { background-color: transparent; color: @theme_fg_color; }
 .super-clipboard-gear { min-width: 28px; min-height: 28px; padding: 0; opacity: 0.7; }
 .super-clipboard-gear:hover { opacity: 1; }
+.super-clipboard-update {
+    background-color: alpha(@theme_selected_bg_color, 0.14);
+    border: 1px solid alpha(@theme_selected_bg_color, 0.45);
+    border-radius: 8px;
+    padding: 4px 4px 4px 10px;
+}
+.super-clipboard-update label { font-size: 0.9em; }
+.super-clipboard-update button { min-height: 0; padding: 2px 10px; }
 """
 
 
@@ -1154,6 +1506,7 @@ class Panel(Gtk.Window):
         header_events.add(header)
         self._make_draggable(header_events)
         panel.pack_start(header_events, False, False, 0)
+        panel.pack_start(self._build_update_bar(), False, False, 0)
 
         tabbar = Gtk.Box(spacing=2)
         tabbar.set_margin_top(8)
@@ -1230,6 +1583,43 @@ class Panel(Gtk.Window):
         self.connect("hide", self._on_hidden)
         self.connect("focus-out-event", self._on_focus_out)
         self.connect("delete-event", lambda *_a: self.hide() or True)
+
+    # -- update bar -------------------------------------------------------
+
+    def _build_update_bar(self):
+        """Shown while a newer release is known: what is going on, and a button."""
+        bar = Gtk.Box(spacing=8)
+        bar.get_style_context().add_class("super-clipboard-update")
+        bar.set_margin_top(8)
+        bar.set_margin_start(12)
+        bar.set_margin_end(12)
+        self.update_label = Gtk.Label(xalign=0)
+        self.update_label.set_ellipsize(Pango.EllipsizeMode.END)
+        self.update_button = Gtk.Button()
+        self.update_button.set_can_focus(False)
+        self.update_button.set_valign(Gtk.Align.CENTER)
+        self.update_button.get_style_context().add_class("suggested-action")
+        self.update_button.connect("clicked", lambda *_a: self.app.updater.install())
+        bar.pack_start(self.update_label, True, True, 0)
+        bar.pack_end(self.update_button, False, False, 0)
+        self.update_label.show()
+        self.update_button.show()
+        bar.set_no_show_all(True)
+        self.update_bar = bar
+        self.app.updater.listeners.append(self.refresh_update_bar)
+        return bar
+
+    def refresh_update_bar(self):
+        updater = self.app.updater
+        if updater.release is None or updater.status not in (
+                "available", "downloading", "installing", "install_failed"):
+            self.update_bar.hide()
+            return
+        self.update_label.set_markup(updater.text(markup=True))
+        self.update_label.set_tooltip_text(updater.text())
+        self.update_button.set_label(_("upd_retry") if updater.status == "install_failed" else _("upd_install"))
+        self.update_button.set_sensitive(not updater.busy)
+        self.update_bar.show()
 
     # -- preview ----------------------------------------------------------
 
@@ -1780,6 +2170,7 @@ class Panel(Gtk.Window):
         self.listbox.unselect_all()
         self.tab = "all"
         self.tab_buttons["all"].set_active(True)
+        self.refresh_update_bar()
         self.rebuild()
         self.scroller.get_vadjustment().set_value(0)
         self.realize()
@@ -1949,6 +2340,22 @@ class SettingsWindow(Gtk.Window):
         self._line += 1
         self._set_hotkey(self.hotkey)
 
+        self.check_updates = Gtk.Switch(active=cfg["check_updates"])
+        self._add(grid, "set_updates", self.check_updates)
+        self.update_status = Gtk.Label(xalign=0, wrap=True)
+        self.update_status.set_max_width_chars(34)
+        self.update_status.get_style_context().add_class("dim-label")
+        self.update_button = Gtk.Button()
+        self.update_button.set_halign(Gtk.Align.END)
+        self.update_button.set_valign(Gtk.Align.CENTER)
+        self.update_button.connect("clicked", self._on_update_clicked)
+        grid.attach(self.update_status, 0, self._line, 1, 1)
+        grid.attach(self.update_button, 1, self._line, 1, 1)
+        self._line += 1
+        app.updater.listeners.append(self._refresh_update)
+        self.connect("destroy", lambda *_a: app.updater.listeners.remove(self._refresh_update))
+        self._refresh_update()
+
         buttons = Gtk.Box(spacing=8)
         buttons.set_halign(Gtk.Align.END)
         buttons.set_margin_top(8)
@@ -2053,6 +2460,22 @@ class SettingsWindow(Gtk.Window):
         self._end_capture()
         self._set_hotkey(accel)
 
+    def _refresh_update(self):
+        updater = self.app.updater
+        self.update_status.set_markup(updater.text(markup=True))
+        if updater.release is not None and updater.status in ("available", "install_failed"):
+            self.update_button.set_label(_("upd_install_to") % updater.release["label"])
+        else:
+            self.update_button.set_label(_("upd_check"))
+        self.update_button.set_sensitive(not updater.busy)
+
+    def _on_update_clicked(self, _button):
+        updater = self.app.updater
+        if updater.release is not None and updater.status in ("available", "install_failed"):
+            updater.install()
+        else:
+            updater.check()
+
     def _on_reset_positions(self, button):
         self.app.state["positions"] = {}
         save_state(self.app.state)
@@ -2069,6 +2492,7 @@ class SettingsWindow(Gtk.Window):
         cfg["paste_formatted"] = self.formatted.get_active()
         cfg["paste_shortcut"] = self.shortcut.get_active_id() or "shift+insert"
         cfg["persist"] = self.persist.get_active()
+        cfg["check_updates"] = self.check_updates.get_active()
         previous = configured_hotkey(cfg)
         cfg["hotkey"] = self.hotkey
         save_config(cfg)
@@ -2097,6 +2521,7 @@ class SuperClipboard(Gtk.Application):
                 ("quit", "q", "Stop the background process"),
                 ("setup-hotkey", 0, "Bind the keyboard shortcut (default Super+V) to the panel and exit"),
                 ("remove-hotkey", 0, "Remove the keyboard shortcut and exit"),
+                ("check-update", 0, "Look for a newer version on GitHub and exit"),
                 ("version", "v", "Print the version and exit")):
             self.add_main_option(name, ord(char) if char else 0, GLib.OptionFlags.NONE,
                                  none, text, None)
@@ -2105,6 +2530,7 @@ class SuperClipboard(Gtk.Application):
         self.store = None
         self.panel = None
         self.settings = None
+        self.updater = None
         self.clipboard = None
         self.primary = None
         self.keyboard = VirtualKeyboard()
@@ -2132,6 +2558,18 @@ class SuperClipboard(Gtk.Application):
             remove_hotkey(accel)
             print("%s binding removed." % accel_label(accel))
             return 0
+        if options.contains("check-update"):
+            try:
+                release = fetch_latest_release()
+            except (UpdateError,) + UPDATE_ERRORS as err:
+                print("Could not check for updates:", error_text(err))
+                return 1
+            if release is not None and release["version"] > CURRENT_VERSION:
+                print("Super Clipboard %s is available (installed: %s): %s" % (
+                    release["label"], VERSION, release["page"]))
+            else:
+                print("Super Clipboard %s is up to date." % VERSION)
+            return 0
         return -1
 
     def do_startup(self):
@@ -2142,6 +2580,9 @@ class SuperClipboard(Gtk.Application):
         self.store.expire()
         GLib.timeout_add_seconds(3600, self._expire_tick)
         self.keyboard.open()
+        # A package upgrade stops this process with SIGTERM: shut down cleanly (saves the history).
+        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, self._on_sigterm)
+        self.updater = Updater(self)
 
         provider = Gtk.CssProvider()
         provider.load_from_data(CSS)
@@ -2157,12 +2598,14 @@ class SuperClipboard(Gtk.Application):
         self.panel = Panel(self)
 
         for name, handler in (("toggle", self.toggle), ("show", self.show_panel),
-                              ("quit", self.quit)):
+                              ("quit", self.quit), ("install-update", self.updater.install)):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", lambda _action, _param, fn=handler: fn())
             self.add_action(action)
 
         self._first_run_hotkey()
+        self._announce_new_version()
+        self.updater.start()
         self.hold()
 
     def do_shutdown(self):
@@ -2183,6 +2626,24 @@ class SuperClipboard(Gtk.Application):
         elif options.contains("show"):
             self.show_panel()
         return 0
+
+    def _on_sigterm(self):
+        self.quit()
+        return GLib.SOURCE_REMOVE
+
+    def _announce_new_version(self):
+        """After an update, say so once (the old process vanished without a word)."""
+        previous = self.state.get("version")
+        if previous == VERSION:
+            return
+        self.state["version"] = VERSION
+        save_state(self.state)
+        if (parse_version(previous) or CURRENT_VERSION) < CURRENT_VERSION:
+            self.withdraw_notification("update")
+            note = Gio.Notification.new(_("upd_done_title") % VERSION)
+            note.set_icon(Gio.ThemedIcon.new(APP_ID))
+            note.set_default_action("app.show")
+            self.send_notification("updated", note)
 
     def _first_run_hotkey(self):
         try:

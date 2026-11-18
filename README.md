@@ -6,7 +6,7 @@ Nov 16, 2026 · @sacidsezgin
 
 Super Clipboard shows your clipboard history when you press Super+V, just like Win+V on Windows 11. It runs on Zorin OS and other Ubuntu desktops (GNOME on Wayland or X11, Xfce) and comes as a single .deb package.
 
-This documentation describes version 1.5.0 by Sacid Sezgin. The program is written in Python with GTK 3 and licensed under the MIT license.
+This documentation describes version 1.6.0 by Sacid Sezgin. The program is written in Python with GTK 3 and licensed under the MIT license.
 
 - Remembers text and images, the last 50 entries by default.
 - Pastes the chosen entry straight into the window you are working in.
@@ -17,13 +17,14 @@ This documentation describes version 1.5.0 by Sacid Sezgin. The program is writt
 - Deletes old entries after a configurable number of days; pinned entries stay.
 - Remembers the window position for each monitor separately.
 - Speaks English and German. English is the default; German is used when the system language is German.
+- Updates itself: it finds new releases on GitHub and installs them with one click.
 
 ## Installation and first start
 
-One command installs Super Clipboard with its dependencies; after that a first start is all it takes for Super+V to work.
+Download `super-clipboard_1.6.0_all.deb` from the [latest release](https://github.com/sacidsezgin/super-clipboard/releases/latest). One command installs it with its dependencies; after that a first start is all it takes for Super+V to work.
 
 ```
-sudo apt install ./super-clipboard_1.5.0_all.deb
+sudo apt install ./super-clipboard_1.6.0_all.deb
 super-clipboard --show
 ```
 
@@ -33,7 +34,7 @@ Instead of `super-clipboard --show` you can also open "Super Clipboard" from the
 
 - python3 (3.8 or newer), python3-gi, gir1.2-gtk-3.0, gir1.2-gdkpixbuf-2.0
 - libglib2.0-bin, hicolor-icon-theme
-- recommended: xwayland, udev, kmod, appstream; optional: xdotool
+- recommended: xwayland, udev, kmod, appstream, pkexec, ca-certificates; optional: xdotool
 
 **The keyboard shortcut.** On GNOME, Super+V is created as a custom shortcut named "Super Clipboard History". GNOME's own binding of Super+V (notification list) is released; Super+M still opens it. On Xfce, Super Clipboard registers the shortcut through `xfconf`. To use a different key combination, open the settings (gear), click the button next to "Shortcut to open the panel", press the new keys and then "Save"; Esc cancels the capture and "Default" restores Super+V. The combination needs Ctrl, Alt or Super (or an F key). If the shortcut does nothing, run `super-clipboard --setup-hotkey`.
 
@@ -151,6 +152,7 @@ The most important settings are in the settings window (gear in the window heade
 | `paste_formatted` | false | Paste with formatting by default. Window: "Paste with formatting by default" |
 | `persist` | true | Keep the history after logging out. Window: "Keep the history after logging out" |
 | `hotkey` | `<Super>v` | Keyboard shortcut that opens the window, as a GTK accelerator such as `<Primary><Alt>k`. Window: "Shortcut to open the panel" |
+| `check_updates` | true | Look for new releases on GitHub at startup and every 12 hours. Window: "Check for updates automatically" |
 | `position` | `auto` | `auto` = centered on the monitor, `pointer` = at the mouse pointer (X11 only); file only |
 | `max_text_chars` | 1000000 | longer texts are not recorded; file only |
 | `max_image_pixels` | 40000000 | images with more pixels (width times height) are not recorded; file only |
@@ -164,15 +166,16 @@ The most important settings are in the settings window (gear in the window heade
 
 ## Files, storage location and privacy
 
-Super Clipboard stores everything locally in your home directory and makes no network connections. The folders are readable only by you (permissions 700), and so are the files (600).
+Super Clipboard stores everything locally in your home directory. Its only network connection is the update check (see "Updates and uninstallation"), which sends nothing but the installed version number; turn off "Check for updates automatically" to stop it. The folders are readable only by you (permissions 700), and so are the files (600).
 
 | Path | Content |
 | --- | --- |
 | `~/.local/share/super-clipboard/history.json` | the history: text, formatting (HTML) if any, pin status, time; sensitive texts unmasked |
 | `~/.local/share/super-clipboard/images/` | copied images as PNG |
 | `~/.config/super-clipboard/config.json` | settings |
-| `~/.config/super-clipboard/state.json` | remembered window positions per monitor |
+| `~/.config/super-clipboard/state.json` | remembered window positions per monitor; the last version that ran and the last update that was announced |
 | `~/.config/super-clipboard/hotkey-installed` | marker that the keyboard shortcut has already been registered |
+| `~/.cache/super-clipboard/updates/` | the last downloaded update package and `install.log` from installing it |
 
 **What is not recorded.**
 
@@ -195,6 +198,7 @@ All commands go through the `super-clipboard` program and talk to the background
 | `super-clipboard --setup-hotkey` | (re)register the keyboard shortcut (Super+V unless changed in the settings) |
 | `super-clipboard --remove-hotkey` | remove the keyboard shortcut and give Super+V back to GNOME |
 | `super-clipboard --version` (`-v`) | print the version |
+| `super-clipboard --check-update` | ask GitHub whether a newer version exists and print the answer |
 | `super-clipboard-toggle` | called by the keyboard shortcut; toggles the window over D-Bus and starts Super Clipboard if it is not running |
 
 ## How it works
@@ -215,6 +219,7 @@ A small background process watches the clipboard; the window is only its display
 - **Window without flicker.** It only becomes visible once it is in place; on Wayland an invisible 1×1 window determines the monitor beforehand.
 - **Keyboard shortcut.** Registered as a custom GNOME shortcut that starts `super-clipboard-toggle`.
 - **Metadata for software centers.** The package contains AppStream data (name "Super Clipboard", developer, release notes).
+- **Updates.** The process asks the GitHub API (`api.github.com`) for the latest release; the request carries only `super-clipboard/<version>` as its user agent. A newer package is downloaded from the release, checked against its SHA-256 checksum and handed to `/usr/lib/super-clipboard/install-update`. pkexec runs that helper as root under the polkit action `org.super_clipboard.Clipboard.update`, which asks for an administrator password. The helper installs only packages named `super-clipboard`, through apt.
 
 ## Limits and known restrictions
 
@@ -243,13 +248,26 @@ Most problems concern the keyboard shortcut or pasting. Messages from the progra
 | Entry is wrongly sensitive or not sensitive | This is down to the pattern detection. Deleting and copying again changes nothing, because the text is sorted the same way again; a correction per entry is not provided. |
 | History is empty after login | Check whether "Keep the history after logging out" is on and whether `expire_days` has already deleted the entries. |
 | The software app shows an old version or the name `super-clipboard` | For the installed application run `gnome-software --quit` and reopen the app; if necessary log out and back in. For an opened .deb file see "Limits". |
+| "Could not check for updates" | No network connection, or GitHub's limit for anonymous requests (60 per hour per address) was reached. The next check runs by itself; `super-clipboard --check-update` shows the error. |
+| "Update failed: … Could not get lock …" | Another software update is running. Wait until it has finished, then press "Try again". |
+| "Update" fails or no password dialog appears | The details are in `~/.cache/super-clipboard/updates/install.log`. Without a password dialog the desktop has no polkit agent; install the update by hand (see "Updates and uninstallation"). |
 | The interface is in the wrong language | Super Clipboard follows the system language (`LC_ALL`, `LC_MESSAGES`, `LANG`, and a `LANGUAGE` preference list). German systems get German, everything else gets English. Restart with `super-clipboard --quit; super-clipboard` after changing it, for example `LANG=en_US.UTF-8 super-clipboard`. |
 
-## Update and uninstallation
+## Updates and uninstallation
 
 An update replaces only the program; history and settings are kept.
 
-**Update.** Install the new .deb file with the same command. The installation ends the running process; the next press of Super+V or the next login starts the new version.
+**Automatic updates.** Super Clipboard asks GitHub for the newest release 90 seconds after it starts and then every 12 hours. When there is a newer version:
+
+- a notification says so once, with an "Update" button;
+- the window shows a bar at the top with the new version (click the number for the release notes) and an "Update" button;
+- the settings show it next to the "Update to …" button.
+
+"Update" downloads the .deb from the GitHub release, checks its SHA-256 checksum and installs it. The system asks for an administrator password first. Afterwards the new version starts by itself and a notification confirms the update. If you close the password dialog, nothing is installed and the bar stays.
+
+To stop the automatic check, turn off "Check for updates automatically" in the settings; "Check now" still checks on request, and `super-clipboard --check-update` checks from the terminal. When Super Clipboard runs from the source folder or pkexec is missing, "Update" opens the release page instead.
+
+**Manual update.** Download the new .deb from the [releases page](https://github.com/sacidsezgin/super-clipboard/releases) and install it with the same command. The installation ends the running process; the next press of Super+V or the next login starts the new version.
 
 ```
 sudo apt install ./super-clipboard_<version>_all.deb
@@ -268,11 +286,11 @@ The first command gives Super+V back to GNOME. The last line deletes history and
 
 ## Building from source
 
-The source archive builds a .deb with a single script; besides the standard tools it only needs `dpkg-deb`.
+Every GitHub release also offers the source code (`super-clipboard-1.6.0.tar.gz`). It builds a .deb with a single script; besides the standard tools it only needs `dpkg-deb`.
 
 ```
-tar xzf super-clipboard-1.5.0-source.tar.gz
-cd super-clipboard
+tar xzf super-clipboard-1.6.0.tar.gz
+cd super-clipboard-1.6.0
 ./build.sh
 ```
 
@@ -282,16 +300,30 @@ The result is at `build/super-clipboard_<version>_all.deb`. The script reads the
 | --- | --- |
 | `src/super-clipboard` | the program (a single Python file) |
 | `src/super-clipboard-toggle` | small script that the keyboard shortcut calls |
-| `data/` | desktop entries, icons, udev rule, AppStream files, README |
+| `src/super-clipboard-install-update` | root helper that installs a downloaded update (run through pkexec) |
+| `data/` | desktop entries, icons, udev rule, polkit policy, AppStream files, README |
 | `debian/` | package data: `control.in`, `postinst`, `prerm`, `postrm`, `changelog`, `copyright` |
 | `build.sh` | builds the package |
+| `tools/release.py` | works out the next version from the commit messages and updates the files for it |
+| `.github/workflows/release.yml` | builds and publishes a GitHub release on every push to `main` that needs one |
 
-**Releasing a new version.**
+**Releasing a new version.** Releases happen by themselves: on every push to `main`, GitHub Actions reads the commit messages since the last release tag, written as [Conventional Commits](https://www.conventionalcommits.org/):
 
-1. Raise `VERSION` in `src/super-clipboard`.
-2. Add a new entry at the top of `debian/changelog`.
-3. Add a new `<release>` entry in `data/org.super_clipboard.Clipboard.metainfo.xml` and `data/org.super_clipboard.Clipboard.catalog.xml`. The topmost one carries `@VERSION@`; the previously topmost one gets its fixed version number.
-4. Run `./build.sh`.
+| Commit message | Release |
+| --- | --- |
+| `fix: …` | patch release, 1.5.0 → 1.5.1 |
+| `feat: …` | minor release, 1.5.0 → 1.6.0 |
+| `feat!: …`, `fix!: …` or a `BREAKING CHANGE:` line in the body | major release, 1.5.0 → 2.0.0 |
+| `chore:`, `docs:`, `refactor:`, `ci:`, `test:`, `style:` … | no release |
+
+For a release, `tools/release.py` raises `VERSION` in `src/super-clipboard`, adds an entry built from the commit subjects to `debian/changelog`, the AppStream files and the version history below, and updates the version numbers in this README. The workflow builds the .deb, commits these changes to `main` as `chore(release): vX.Y.Z` and publishes the GitHub release `vX.Y.Z` with `super-clipboard_X.Y.Z_all.deb` and its `.sha256` file attached.
+
+- Pull after a release (`git pull --rebase`), because the release commit lands on `main`.
+- The commit subjects become the release notes, so write them for users: `feat: paste images as files`, not `feat: refactor paste()`.
+- To release a version by hand, set it in `src/super-clipboard` (for example `VERSION = "2.0.0"`) and push; a `VERSION` above the last tag is released as it is.
+- Until the first release tag exists, the `VERSION` in `src/super-clipboard` is published as the first release.
+- `python3 tools/release.py --dry-run` shows what the next release would be.
+- If `main` is a protected branch, allow GitHub Actions to push to it; otherwise the release commit is refused and no release is made.
 
 **Languages.** The interface strings live in the `STRINGS` table in `src/super-clipboard`. `DEFAULT_LANGUAGE` (`en`) is used for every system language without a translation. To add a language, add a table under its two-letter code with the same keys as `en`.
 
@@ -299,8 +331,12 @@ The result is at `build/super-clipboard_<version>_all.deb`. The script reads the
 
 | Version | Date | Changes |
 | --- | --- | --- |
-| 1.5.0 | 2026-11-16 | English is the default interface language, German follows a German system language; language detection follows gettext rules; documentation in English |
-| 1.5.0 | 2026-11-16 | Preview with editing (space bar); pasting with or without formatting, button next to the pin and a setting; release notes for the software center |
+| 1.6.0 | 2026-11-18 | Finds new versions on GitHub and installs them with one click (administrator password); "Check for updates automatically" setting and `--check-update`; every fix and feature is published as a GitHub release with the .deb |
+| 1.5.0 | 2026-11-17 | "Pinned" tab (pin icon) with all pinned entries, the most recently pinned first |
+| 1.4.0 | 2026-11-17 | Keyboard shortcut that opens the window can be changed in the settings |
+| 1.3.1 | 2026-11-17 | Old SuperV shortcut is removed on first start so it no longer blocks Super+V; window shadow no longer cut off |
+| 1.3.0 | 2026-11-16 | Renamed from SuperV to Super Clipboard; English is the default interface language, German follows a German system language; language detection follows gettext rules; documentation in English |
+| 1.2.0 | 2026-11-16 | Preview with editing (space bar); pasting with or without formatting, button next to the pin and a setting; release notes for the software center |
 | 1.1.1 | 2026-11-16 | Window no longer flashes before it is placed; Ctrl+number waits for Ctrl to be released; "URLs" tab; names such as `Mobile_pos2` no longer count as a password |
 | 1.1.0 | 2026-11-16 | Quick selection with Ctrl+1 to 9; time per entry; remember position per monitor; automatic deletion; Text, Code, Sensitive, Images tabs with masking; settings window |
 | 1.0.7 | 2026-11-13 | Version number centered in the window header |
