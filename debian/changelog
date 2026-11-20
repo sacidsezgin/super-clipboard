@@ -1,3 +1,10 @@
+super-clipboard (1.6.2) unstable; urgency=medium
+
+  * The pin button is no longer shown on every entry in the Pinned tab, only
+    on the selected entry and on hover.
+
+ -- Sacid Sezgin <noreply@localhost>  Fri, 20 Nov 2026 11:50:00 +0100
+
 super-clipboard (1.6.1) unstable; urgency=medium
 
   * Added unpin button hover.

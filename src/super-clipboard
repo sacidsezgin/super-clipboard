@@ -52,7 +52,7 @@ except (ValueError, ImportError):
 APP_ID = "org.super_clipboard.Clipboard"
 APP_PATH = "/org/super_clipboard/Clipboard"   # D-Bus object path GApplication derives from APP_ID
 APP_NAME = "Super Clipboard"
-VERSION = "1.6.1"
+VERSION = "1.6.2"
 AUTHOR = "Sacid Sezgin"
 TOGGLE_COMMAND = "/usr/bin/super-clipboard-toggle"
 
@@ -1390,6 +1390,11 @@ CSS = b"""
 #super-clipboard-list > row:selected .super-clipboard-card button.super-clipboard-pinned {
     opacity: 1; color: @theme_selected_bg_color;
 }
+/* Pinned tab: all entries are pinned, so behave like the other buttons (hover / selected only) */
+#super-clipboard-list.super-clipboard-pinned-tab > row .super-clipboard-card button.super-clipboard-pinned { opacity: 0; }
+#super-clipboard-list.super-clipboard-pinned-tab > row:hover .super-clipboard-card button.super-clipboard-pinned,
+#super-clipboard-list.super-clipboard-pinned-tab > row:selected .super-clipboard-card button.super-clipboard-pinned { opacity: 0.65; }
+#super-clipboard-list.super-clipboard-pinned-tab > row .super-clipboard-card button.super-clipboard-pinned:hover { opacity: 1; }
 .super-clipboard-card image.super-clipboard-thumb { border-radius: 4px; }
 .super-clipboard-badge { font-size: 0.78em; opacity: 0.55; min-width: 10px; margin-top: 2px; }
 .super-clipboard-meta { font-size: 0.78em; opacity: 0.55; }
@@ -1931,6 +1936,12 @@ class Panel(Gtk.Window):
         keep_id = selected.item_id if selected else None
         for child in self.listbox.get_children():
             self.listbox.remove(child)
+        # in the Pinned tab every entry is pinned, so the pin must not be shown permanently there
+        list_style = self.listbox.get_style_context()
+        if self.tab == "pinned":
+            list_style.add_class("super-clipboard-pinned-tab")
+        else:
+            list_style.remove_class("super-clipboard-pinned-tab")
         query = self.search.get_text().strip().lower()
         items = self.app.store.items
         if self.tab == "pinned":
