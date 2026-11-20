@@ -1,3 +1,9 @@
+super-clipboard (1.6.1) unstable; urgency=medium
+
+  * Added unpin button hover.
+
+ -- Sacid Sezgin <noreply@localhost>  Fri, 20 Nov 2026 10:32:26 +0000
+
 super-clipboard (1.6.0) unstable; urgency=medium
 
   * Updates: Super Clipboard looks for new releases on GitHub at startup and

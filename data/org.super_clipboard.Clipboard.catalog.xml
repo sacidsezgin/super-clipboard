@@ -29,6 +29,13 @@
     </categories>
     <content_rating type="oars-1.1"/>
     <releases>
+      <release version="1.6.1" date="2026-11-20">
+        <description>
+          <ul>
+            <li>Added unpin button hover</li>
+          </ul>
+        </description>
+      </release>
       <release version="1.6.0" date="2026-11-18">
         <description>
           <p>Super Clipboard now finds new versions on GitHub and installs them with one click, after asking for an administrator password.</p>
