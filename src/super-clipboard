@@ -1912,6 +1912,12 @@ class Panel(Gtk.Window):
                                 self.app.store.toggle_pin, item.id)
         if item.pinned:
             pin.get_style_context().add_class("super-clipboard-pinned")
+            # the click releases the pin: show that by striking the icon through while hovered
+            pin_image = pin.get_image()
+            pin.connect("enter-notify-event", lambda *_a: pin_image.set_from_icon_name(
+                "super-clipboard-unpin-symbolic", Gtk.IconSize.MENU) or False)
+            pin.connect("leave-notify-event", lambda *_a: pin_image.set_from_icon_name(
+                "super-clipboard-pin-symbolic", Gtk.IconSize.MENU) or False)
         buttons.pack_start(pin, False, False, 0)
         buttons.pack_start(self._icon_button("super-clipboard-delete-symbolic", _("delete"),
                                              self.app.store.remove, item.id), False, False, 0)

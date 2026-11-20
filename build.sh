@@ -18,6 +18,7 @@ install -D -m 644 data/super-clipboard-modules.conf         "$PKG/usr/lib/module
 install -D -m 644 data/org.super_clipboard.Clipboard.update.policy "$PKG/usr/share/polkit-1/actions/org.super_clipboard.Clipboard.update.policy"
 install -D -m 644 data/org.super_clipboard.Clipboard.svg    "$PKG/usr/share/icons/hicolor/scalable/apps/org.super_clipboard.Clipboard.svg"
 install -D -m 644 data/super-clipboard-pin-symbolic.svg     "$PKG/usr/share/icons/hicolor/symbolic/apps/super-clipboard-pin-symbolic.svg"
+install -D -m 644 data/super-clipboard-unpin-symbolic.svg   "$PKG/usr/share/icons/hicolor/symbolic/apps/super-clipboard-unpin-symbolic.svg"
 install -D -m 644 data/super-clipboard-delete-symbolic.svg  "$PKG/usr/share/icons/hicolor/symbolic/apps/super-clipboard-delete-symbolic.svg"
 install -D -m 644 data/super-clipboard-settings-symbolic.svg "$PKG/usr/share/icons/hicolor/symbolic/apps/super-clipboard-settings-symbolic.svg"
 install -D -m 644 data/super-clipboard-format-symbolic.svg "$PKG/usr/share/icons/hicolor/symbolic/apps/super-clipboard-format-symbolic.svg"
