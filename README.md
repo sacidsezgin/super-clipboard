@@ -16,7 +16,7 @@ This documentation describes version 1.7.0 by Sacid Sezgin. The program is writt
 - Has a preview with editing and can paste with or without formatting.
 - Deletes old entries after a configurable number of days; pinned entries stay.
 - Remembers the window position for each monitor separately.
-- Speaks English and German. English is the default; German is used when the system language is German.
+- Speaks English and German. English is the default; German is used when the system language is German. You can also pick the language in the settings.
 - Updates itself: it finds new releases on GitHub and installs them with one click.
 
 ## Installation and first start
@@ -152,6 +152,7 @@ The most important settings are in the settings window (gear in the window heade
 | `paste_formatted` | false | Paste with formatting by default. Window: "Paste with formatting by default" |
 | `persist` | true | Keep the history after logging out. Window: "Keep the history after logging out" |
 | `hotkey` | `<Super>v` | Keyboard shortcut that opens the window, as a GTK accelerator such as `<Primary><Alt>k`. Window: "Shortcut to open the panel" |
+| `language` | "auto" | Interface language: `auto` follows the system language (German on German systems, English otherwise), `en` or `de` fixes it. Takes effect when you press "Save". Window: "Language" |
 | `check_updates` | true | Look for new releases on GitHub at startup and every 12 hours. Window: "Check for updates automatically" |
 | `position` | `auto` | `auto` = centered on the monitor, `pointer` = at the mouse pointer (X11 only); file only |
 | `max_text_chars` | 1000000 | longer texts are not recorded; file only |
@@ -251,7 +252,7 @@ Most problems concern the keyboard shortcut or pasting. Messages from the progra
 | "Could not check for updates" | No network connection, or GitHub's limit for anonymous requests (60 per hour per address) was reached. The next check runs by itself; `super-clipboard --check-update` shows the error. |
 | "Update failed: … Could not get lock …" | Another software update is running. Wait until it has finished, then press "Try again". |
 | "Update" fails or no password dialog appears | The details are in `~/.cache/super-clipboard/updates/install.log`. Without a password dialog the desktop has no polkit agent; install the update by hand (see "Updates and uninstallation"). |
-| The interface is in the wrong language | Super Clipboard follows the system language (`LC_ALL`, `LC_MESSAGES`, `LANG`, and a `LANGUAGE` preference list). German systems get German, everything else gets English. Restart with `super-clipboard --quit; super-clipboard` after changing it, for example `LANG=en_US.UTF-8 super-clipboard`. |
+| The interface is in the wrong language | Choose the language in the settings ("Language": Automatic, English or Deutsch); the change applies when you press "Save". With "Automatic", Super Clipboard follows the system language (`LC_ALL`, `LC_MESSAGES`, `LANG`, and a `LANGUAGE` preference list): German systems get German, everything else gets English. |
 
 ## Updates and uninstallation
 

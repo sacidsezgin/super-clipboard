@@ -75,6 +75,7 @@ DEFAULT_CONFIG = {
     "paste_formatted": False,          # False: plain text by default, extra button pastes formatted
     "hotkey": "<Super>v",              # GTK accelerator that opens the panel
     "check_updates": True,             # look for new releases on GitHub
+    "language": "auto",                # "auto" (follow the system), "en" or "de"
     "max_html_chars": 300000,          # formatted copies larger than this are stored as plain text
     "max_text_chars": 1000000,
     "max_image_pixels": 40000000,
@@ -128,6 +129,8 @@ STRINGS = {
         "hotkey_default": "Default",
         "hotkey_unsupported": "This desktop is not supported for automatic shortcuts. Bind \"%s\" to %s in your keyboard settings.",
         "set_updates": "Check for updates automatically",
+        "set_language": "Language",
+        "lang_auto": "Automatic (system language)",
         "upd_check": "Check now", "upd_install": "Update", "upd_install_to": "Update to %s",
         "upd_retry": "Try again",
         "upd_idle": "Installed version: %s",
@@ -188,6 +191,8 @@ STRINGS = {
         "hotkey_default": "Standard",
         "hotkey_unsupported": "Dieser Desktop wird für automatische Tastenkürzel nicht unterstützt. Legen Sie \"%s\" in den Tastatureinstellungen auf %s.",
         "set_updates": "Automatisch nach Updates suchen",
+        "set_language": "Sprache",
+        "lang_auto": "Automatisch (Systemsprache)",
         "upd_check": "Jetzt suchen", "upd_install": "Aktualisieren", "upd_install_to": "Auf %s aktualisieren",
         "upd_retry": "Erneut versuchen",
         "upd_idle": "Installierte Version: %s",
@@ -243,7 +248,14 @@ def _pick_language():
     return primary if primary in STRINGS else DEFAULT_LANGUAGE
 
 
+LANGUAGE_NAMES = (("en", "English"), ("de", "Deutsch"))   # always shown in their own language
 _LANG = _pick_language()
+
+
+def set_language(choice):
+    """Use 'en' or 'de'; anything else (including 'auto') follows the system language."""
+    global _LANG
+    _LANG = choice if choice in STRINGS else _pick_language()
 
 
 def _(key):
@@ -275,6 +287,8 @@ def load_config():
             log("could not write default config:", err)
     except (OSError, ValueError) as err:
         log("ignoring unreadable config:", err)
+    if cfg["language"] != "auto" and cfg["language"] not in STRINGS:
+        cfg["language"] = "auto"
     cfg["max_items"] = max(1, min(int(cfg["max_items"]), 500))
     cfg["expire_days"] = max(0, min(int(cfg["expire_days"]), 3650))
     return cfg
@@ -1612,6 +1626,7 @@ class Panel(Gtk.Window):
         bar.set_no_show_all(True)
         self.update_bar = bar
         self.app.updater.listeners.append(self.refresh_update_bar)
+        self.connect("destroy", lambda *_a: self.app.updater.listeners.remove(self.refresh_update_bar))
         return bar
 
     def refresh_update_bar(self):
@@ -2357,6 +2372,14 @@ class SettingsWindow(Gtk.Window):
         self._line += 1
         self._set_hotkey(self.hotkey)
 
+        self.language = Gtk.ComboBoxText()
+        self.language.append("auto", _("lang_auto"))
+        for code, name in LANGUAGE_NAMES:
+            self.language.append(code, name)
+        if not self.language.set_active_id(cfg["language"]):
+            self.language.set_active_id("auto")
+        self._add(grid, "set_language", self.language)
+
         self.check_updates = Gtk.Switch(active=cfg["check_updates"])
         self._add(grid, "set_updates", self.check_updates)
         self.update_status = Gtk.Label(xalign=0, wrap=True)
@@ -2510,6 +2533,9 @@ class SettingsWindow(Gtk.Window):
         cfg["paste_shortcut"] = self.shortcut.get_active_id() or "shift+insert"
         cfg["persist"] = self.persist.get_active()
         cfg["check_updates"] = self.check_updates.get_active()
+        language = self.language.get_active_id() or "auto"
+        language_changed = language != cfg["language"]
+        cfg["language"] = language
         previous = configured_hotkey(cfg)
         cfg["hotkey"] = self.hotkey
         save_config(cfg)
@@ -2517,6 +2543,8 @@ class SettingsWindow(Gtk.Window):
         if self.hotkey != previous:
             self.app.change_hotkey(previous, self.hotkey, self)
         self.destroy()
+        if language_changed:
+            self.app.apply_language()
 
 
 # ----------------------------------------------------------- application ----
@@ -2592,6 +2620,7 @@ class SuperClipboard(Gtk.Application):
     def do_startup(self):
         Gtk.Application.do_startup(self)
         self.cfg = load_config()
+        set_language(self.cfg["language"])
         self.state = load_state()
         self.store = Store(self.cfg, self._on_store_changed)
         self.store.expire()
@@ -2727,6 +2756,12 @@ class SuperClipboard(Gtk.Application):
             self.settings = SettingsWindow(self)
             self.settings.connect("destroy", self._on_settings_closed)
         self.settings.present()
+
+    def apply_language(self):
+        """Switch the interface language now by rebuilding the (hidden) panel."""
+        set_language(self.cfg["language"])
+        self.panel.destroy()
+        self.panel = Panel(self)
 
     def _on_settings_closed(self, *_args):
         self.settings = None
