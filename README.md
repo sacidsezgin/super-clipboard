@@ -6,7 +6,7 @@ Nov 16, 2026 · @sacidsezgin
 
 Super Clipboard shows your clipboard history when you press Super+V, just like Win+V on Windows 11. It runs on Zorin OS and other Ubuntu desktops (GNOME on Wayland or X11, Xfce) and comes as a single .deb package.
 
-This documentation describes version 1.8.1 by Sacid Sezgin. The program is written in Python with GTK 3 and licensed under the MIT license.
+This documentation describes version 1.8.2 by Sacid Sezgin. The program is written in Python with GTK 3 and licensed under the MIT license.
 
 - Remembers text and images, the last 50 entries by default.
 - Pastes the chosen entry straight into the window you are working in.
@@ -21,10 +21,10 @@ This documentation describes version 1.8.1 by Sacid Sezgin. The program is writt
 
 ## Installation and first start
 
-Download `super-clipboard_1.8.1_all.deb` from the [latest release](https://github.com/sacidsezgin/super-clipboard/releases/latest). One command installs it with its dependencies; after that a first start is all it takes for Super+V to work.
+Download `super-clipboard_1.8.2_all.deb` from the [latest release](https://github.com/sacidsezgin/super-clipboard/releases/latest). One command installs it with its dependencies; after that a first start is all it takes for Super+V to work.
 
 ```
-sudo apt install ./super-clipboard_1.8.1_all.deb
+sudo apt install ./super-clipboard_1.8.2_all.deb
 super-clipboard --show
 ```
 
@@ -293,11 +293,11 @@ The first command gives Super+V back to GNOME. The last line deletes history and
 
 ## Building from source
 
-Every GitHub release also offers the source code (`super-clipboard-1.8.1.tar.gz`). It builds a .deb with a single script; besides the standard tools it only needs `dpkg-deb`.
+Every GitHub release also offers the source code (`super-clipboard-1.8.2.tar.gz`). It builds a .deb with a single script; besides the standard tools it only needs `dpkg-deb`.
 
 ```
-tar xzf super-clipboard-1.8.1.tar.gz
-cd super-clipboard-1.8.1
+tar xzf super-clipboard-1.8.2.tar.gz
+cd super-clipboard-1.8.2
 ./build.sh
 ```
 
@@ -338,6 +338,7 @@ For a release, `tools/release.py` raises `VERSION` in `src/super-clipboard`, add
 
 | Version | Date | Changes |
 | --- | --- | --- |
+| 1.8.2 | 2026-11-25 | Mark entries as sensitive or not sensitive, detect more secrets |
 | 1.8.1 | 2026-11-25 | Save edited preview text into the entry (also when pinned) |
 | 1.8.0 | 2026-11-24 | Add language setting (Auto / English / Deutsch) |
 | 1.7.0 | 2026-11-24 | Add language setting (Auto / English / Deutsch) |
