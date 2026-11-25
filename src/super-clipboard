@@ -52,7 +52,7 @@ except (ValueError, ImportError):
 APP_ID = "org.super_clipboard.Clipboard"
 APP_PATH = "/org/super_clipboard/Clipboard"   # D-Bus object path GApplication derives from APP_ID
 APP_NAME = "Super Clipboard"
-VERSION = "1.8.0"
+VERSION = "1.8.1"
 AUTHOR = "Sacid Sezgin"
 TOGGLE_COMMAND = "/usr/bin/super-clipboard-toggle"
 
@@ -95,11 +95,11 @@ STRINGS = {
         "unpin": "Unpin",
         "delete": "Delete",
         "hint": "Enter: paste  ·  Space: preview  ·  Ctrl+1–9  ·  Del: remove",
-        "hint_preview": "Ctrl+Enter: paste  ·  Esc: back",
+        "hint_preview": "Ctrl+Enter: paste  ·  Ctrl+S: save  ·  Esc: back",
         "fmt_with": "Paste with formatting", "fmt_without": "Paste without formatting",
         "cat_rich": "formatted",
-        "preview_note": "Preview – text can be edited before pasting",
-        "back": "← Back", "paste_btn": "Paste", "reveal": "Show", "hide_secret": "Hide",
+        "preview_note": "Preview – edits are saved to the entry",
+        "back": "← Back", "paste_btn": "Paste", "save_btn": "Save", "reveal": "Show", "hide_secret": "Hide",
         "truncated": "Very long text: only the beginning is shown, it cannot be edited here.",
         "set_formatted": "Paste with formatting by default",
         "set_formatted_note": "Off: entries are pasted as plain text; the button next to the pin pastes them with formatting. On: the other way round.",
@@ -157,11 +157,11 @@ STRINGS = {
         "unpin": "Lösen",
         "delete": "Löschen",
         "hint": "Enter: einfügen  ·  Leertaste: Vorschau  ·  Strg+1–9  ·  Entf: löschen",
-        "hint_preview": "Strg+Enter: einfügen  ·  Esc: zurück",
+        "hint_preview": "Strg+Enter: einfügen  ·  Strg+S: speichern  ·  Esc: zurück",
         "fmt_with": "Mit Formatierung einfügen", "fmt_without": "Ohne Formatierung einfügen",
         "cat_rich": "formatiert",
-        "preview_note": "Vorschau – der Text lässt sich vor dem Einfügen ändern",
-        "back": "← Zurück", "paste_btn": "Einfügen", "reveal": "Anzeigen", "hide_secret": "Verbergen",
+        "preview_note": "Vorschau – Änderungen werden im Eintrag gespeichert",
+        "back": "← Zurück", "paste_btn": "Einfügen", "save_btn": "Speichern", "reveal": "Anzeigen", "hide_secret": "Verbergen",
         "truncated": "Sehr langer Text: nur der Anfang wird gezeigt, hier nicht bearbeitbar.",
         "set_formatted": "Standardmäßig mit Formatierung einfügen",
         "set_formatted_note": "Aus: Einträge werden als reiner Text eingefügt; der Knopf neben der Pinnnadel fügt mit Formatierung ein. An: umgekehrt.",
@@ -622,6 +622,13 @@ class Item:
         else:
             self.category, self.spans = "image", ()
 
+    def set_text(self, text):
+        """Replace the text (edited in the preview). The id follows the text, the formatting is dropped."""
+        self.text = text
+        self.html = ""
+        self.id = "t" + hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()[:40]
+        self.category, self.spans = classify(text)
+
     @property
     def display_text(self):
         """What the list shows: the text with its sensitive parts masked."""
@@ -788,6 +795,24 @@ class Store:
             self.items.remove(item)
             self._unlink(item)
             self._changed()
+
+    def edit_text(self, item_id, text):
+        """Save an edited text into the entry itself (position and pin stay). Returns the entry's new id."""
+        item = self.get(item_id)
+        if item is None or item.kind != "text" or text == item.text:
+            return item_id
+        if not text.strip() or len(text) > self.cfg["max_text_chars"]:
+            return item_id
+        old_id = item.id
+        item.set_text(text)
+        if item.id != old_id:
+            twin = next((i for i in self.items if i is not item and i.id == item.id), None)
+            if twin is not None:               # the edit produced a text that already exists: merge
+                self.items.remove(twin)
+                if twin.pinned and not item.pinned:
+                    item.pinned, item.pinned_at = True, twin.pinned_at
+        self._changed()
+        return item.id
 
     def toggle_pin(self, item_id):
         item = self.get(item_id)
@@ -1673,9 +1698,14 @@ class Panel(Gtk.Window):
         paste.set_can_focus(False)
         paste.get_style_context().add_class("suggested-action")
         paste.connect("clicked", lambda *_a: self._paste_preview_now())
+        self.save_button = Gtk.Button(label=_("save_btn"))
+        self.save_button.set_can_focus(False)
+        self.save_button.set_no_show_all(True)
+        self.save_button.connect("clicked", lambda *_a: self._save_preview())
         buttons.pack_start(back, False, False, 0)
         buttons.pack_start(self.reveal_button, False, False, 0)
         buttons.pack_end(paste, False, False, 0)
+        buttons.pack_end(self.save_button, False, False, 0)
         page.pack_start(buttons, False, False, 0)
         return page
 
@@ -1719,6 +1749,7 @@ class Panel(Gtk.Window):
                 content = Gtk.Label(label=_("image"))
             self.preview_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
             self.reveal_button.hide()
+            self.save_button.hide()
         else:
             view = Gtk.TextView()
             view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
@@ -1752,6 +1783,8 @@ class Panel(Gtk.Window):
         self.preview_view.get_buffer().set_text(shown)
         self.preview_view.set_editable(editable)
         self.preview_view.set_cursor_visible(editable)
+        self.save_button.set_sensitive(editable)
+        self.save_button.show()
 
     def _on_reveal_toggled(self, button):
         if self.preview_item is None or self.preview_view is None:
@@ -1760,9 +1793,21 @@ class Panel(Gtk.Window):
         button.set_label(_("hide_secret") if self.revealed else _("reveal"))
         self._fill_preview(self.preview_item)
 
+    def _commit_preview_edit(self):
+        """Store what was typed in the preview in the entry. Returns the entry's id."""
+        item, view = self.preview_item, self.preview_view
+        if item is None:
+            return None
+        if view is not None and view.get_editable():
+            buffer = view.get_buffer()
+            text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
+            return self.app.store.edit_text(item.id, text)
+        return item.id
+
     def close_preview(self):
         if self.preview_item is None:
             return
+        self._commit_preview_edit()
         self.preview_item = None
         self.preview_view = None
         self.stack.set_visible_child_name("list")
@@ -1770,22 +1815,27 @@ class Panel(Gtk.Window):
         self.rebuild()
         self.search.grab_focus_without_selecting()
 
+    def _save_preview(self):
+        """Save the edit into the entry and go back to the list."""
+        view = self.preview_view
+        if view is not None and view.get_editable():
+            buffer = view.get_buffer()
+            if not buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True).strip():
+                return              # an empty entry cannot be saved: stay and let the user fix it
+        self.close_preview()
+
     def _paste_preview_now(self):
         item = self.preview_item
         if item is None:
             return
-        view = self.preview_view
-        if view is not None and view.get_editable():
-            buffer = view.get_buffer()
-            text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
-            if text.strip() and text != item.text:
-                self.app.paste_text(text)      # edited: pasted as plain text, kept as a new entry
-                return
-        self.app.paste_item(item.id)
+        self.app.paste_item(self._commit_preview_edit())
 
     def _on_preview_key(self, key, ctrl):
         if key == Gdk.KEY_Escape:
             self.close_preview()
+            return True
+        if ctrl and key in (Gdk.KEY_s, Gdk.KEY_S):
+            self._save_preview()
             return True
         if ctrl and key in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_ISO_Enter):
             self._after_ctrl_up(self._paste_preview_now)
@@ -2113,6 +2163,7 @@ class Panel(Gtk.Window):
 
     def _on_hidden(self, *_args):
         self.pending_action = None
+        self._commit_preview_edit()       # closed while editing (click outside, Super key): keep the edit
 
     def _remove_keeping_position(self, row):
         rows = self.listbox.get_children()
@@ -2852,14 +2903,6 @@ class SuperClipboard(Gtk.Application):
                 log("could not load image:", err.message)
                 return
         self.store.touch(item.id)
-        self._finish_paste(shortcut)
-
-    def paste_text(self, text):
-        """Paste text that was edited in the preview (plain; it becomes a new entry)."""
-        shortcut = self.cfg["paste_shortcut"].replace(" ", "").lower()
-        self.clipboard.set_text(text, -1)
-        if "insert" in shortcut:
-            self.primary.set_text(text, -1)
         self._finish_paste(shortcut)
 
     def _finish_paste(self, shortcut):

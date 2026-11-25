@@ -104,7 +104,8 @@ The space bar opens the selected entry in full size inside the window, and text 
 
 - **Text:** shown in full. Code appears in a monospaced font.
 - **Image:** scaled down to the window width, larger than in the list.
-- **Paste:** Ctrl+Enter or the "Paste" button. If the text was changed, the changed version is pasted as plain text and stored as a new entry in the history. The original stays unchanged. Without changes the entry is pasted as usual, that is, with formatting if that is the default.
+- **Saving:** Changes are saved into the entry itself with the "Save" button or Ctrl+S (back to the list), and also on Esc, on "← Back", on paste and when the panel closes. The entry keeps its place in the list and stays pinned if it was pinned. Because the text no longer matches, its formatting is dropped. If the changed text equals another entry, the two are merged.
+- **Paste:** Ctrl+Enter or the "Paste" button. The entry is saved and pasted, as plain text if it was changed. Without changes the entry is pasted as usual, that is, with formatting if that is the default.
 - **Back:** Esc or the "← Back" button.
 
 **Sensitive entries** stay masked and read-only in the preview until you press "Show". "Hide" restores the masking.

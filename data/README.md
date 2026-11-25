@@ -28,8 +28,9 @@ secret (KeePassXC and others) are skipped.
 ## Preview and editing
 
 Space opens the selected entry in the panel. Text can be changed there;
-Ctrl+Enter (or the Paste button) pastes the changed text as plain text and
-keeps it as a new entry, the original stays untouched. Esc goes back.
+changes are saved into the entry itself (pinned entries stay pinned) with the
+Save button or Ctrl+S, and also on Esc, Back, paste or when the panel closes.
+Ctrl+Enter (or the Paste button) saves and pastes it. Esc goes back.
 Sensitive entries are shown masked, "Show" reveals and unlocks them.
 
 ## Formatting
