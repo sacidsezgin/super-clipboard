@@ -53,7 +53,7 @@ Everything can be done with the keyboard; the mouse works alongside. The window 
 | Shift+Enter | paste the entry in the respective other format |
 | Ctrl+1 to Ctrl+9 | paste the first to ninth entry of the list |
 | Space | preview of the selected entry (only when the search field is empty) |
-| Typing | search in the texts; the tabs stay active |
+| Typing | search in the texts and comments; the tabs stay active |
 | Del | delete the selected entry (only when the search field is empty) |
 | Ctrl+P | pin or unpin the entry |
 | Ctrl+L | mark the entry as sensitive, or as not sensitive |
@@ -110,6 +110,7 @@ The space bar opens the selected entry in full size inside the window, and text 
 - **Text:** shown in full. Code appears in a monospaced font.
 - **Image:** scaled down to the window width, larger than in the list.
 - **Saving:** Changes are saved into the entry itself with the "Save" button or Ctrl+S (back to the list), and also on Esc, on "← Back", on paste and when the panel closes. The entry keeps its place in the list and stays pinned if it was pinned. Because the text no longer matches, its formatting is dropped. If the changed text equals another entry, the two are merged.
+- **Comment:** The field below the text takes a short note (up to 200 characters) for any entry, text or image. It is saved together with the entry (Enter in the field saves and goes back), shown in italics under the entry in the list and found by the search. It survives copying the same text again and editing the text. Empty the field to remove the comment.
 - **Undo:** Ctrl+Z undoes the last change in the text (typed words, a deletion or a paste count as one step each), Ctrl+Shift+Z or Ctrl+Y redoes it. The history is kept only while the preview is open, and "Show"/"Hide" on a sensitive entry starts it anew.
 - **Paste:** Ctrl+Enter or the "Paste" button. The entry is saved and pasted, as plain text if it was changed. Without changes the entry is pasted as usual, that is, with formatting if that is the default.
 - **Back:** Esc or the "← Back" button.
@@ -180,7 +181,7 @@ Super Clipboard stores everything locally in your home directory. Its only netwo
 
 | Path | Content |
 | --- | --- |
-| `~/.local/share/super-clipboard/history.json` | the history: text, formatting (HTML) if any, pin status, time; sensitive texts unmasked |
+| `~/.local/share/super-clipboard/history.json` | the history: text, formatting (HTML) if any, comment, pin status, time; sensitive texts unmasked |
 | `~/.local/share/super-clipboard/images/` | copied images as PNG |
 | `~/.config/super-clipboard/config.json` | settings |
 | `~/.config/super-clipboard/state.json` | remembered window positions per monitor; the last version that ran and the last update that was announced |

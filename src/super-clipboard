@@ -57,6 +57,7 @@ APP_NAME = "Super Clipboard"
 VERSION = "1.11.1"
 AUTHOR = "Sacid Sezgin"
 TOGGLE_COMMAND = "/usr/bin/super-clipboard-toggle"
+COMMENT_CHARS = 200            # longest comment on an entry
 
 DATA_DIR = os.path.join(GLib.get_user_data_dir(), "super-clipboard")
 IMAGE_DIR = os.path.join(DATA_DIR, "images")
@@ -105,6 +106,7 @@ STRINGS = {
         "fmt_with": "Paste with formatting", "fmt_without": "Paste without formatting",
         "cat_rich": "formatted",
         "preview_note": "Preview – edits are saved to the entry",
+        "comment_hint": "Comment (optional, searchable)",
         "back": "← Back", "paste_btn": "Paste", "save_btn": "Save", "reveal": "Show", "hide_secret": "Hide",
         "truncated": "Very long text: only the beginning is shown, it cannot be edited here.",
         "set_formatted": "Paste with formatting by default",
@@ -176,6 +178,7 @@ STRINGS = {
         "fmt_with": "Mit Formatierung einfügen", "fmt_without": "Ohne Formatierung einfügen",
         "cat_rich": "formatiert",
         "preview_note": "Vorschau – Änderungen werden im Eintrag gespeichert",
+        "comment_hint": "Kommentar (optional, durchsuchbar)",
         "back": "← Zurück", "paste_btn": "Einfügen", "save_btn": "Speichern", "reveal": "Anzeigen", "hide_secret": "Verbergen",
         "truncated": "Sehr langer Text: nur der Anfang wird gezeigt, hier nicht bearbeitbar.",
         "set_formatted": "Standardmäßig mit Formatierung einfügen",
@@ -700,9 +703,10 @@ def monitor_key(monitor):
 # ---------------------------------------------------------------- store ----
 
 class Item:
-    __slots__ = ("id", "kind", "text", "pinned", "pinned_at", "ts", "category", "spans", "html", "mark")
+    __slots__ = ("id", "kind", "text", "pinned", "pinned_at", "ts", "category", "spans", "html", "mark", "comment")
 
-    def __init__(self, item_id, kind, text="", pinned=False, ts=None, html="", mark=None):
+    def __init__(self, item_id, kind, text="", pinned=False, ts=None, html="", mark=None, comment=""):
+        self.comment = comment     # the user's own note on the entry ("" = none)
         self.html = html           # formatted version (text/html) if the copy had one
         self.mark = mark           # the user's decision: True = sensitive, False = not, None = automatic
         self.id = item_id
@@ -740,6 +744,8 @@ class Item:
         data = {"id": self.id, "kind": self.kind, "pinned": self.pinned, "ts": self.ts}
         if self.pinned:
             data["pinned_at"] = self.pinned_at
+        if self.comment:
+            data["comment"] = self.comment
         if self.kind == "text":
             data["text"] = self.text
             if self.html:
@@ -776,10 +782,12 @@ class Store:
             try:
                 html = entry.get("html", "")
                 mark = entry.get("sensitive")
+                comment = entry.get("comment", "")
                 item = Item(str(entry["id"]), entry["kind"], entry.get("text", ""),
                             bool(entry.get("pinned")), float(entry.get("ts", 0)),
                             html if isinstance(html, str) else "",
-                            mark if isinstance(mark, bool) else None)
+                            mark if isinstance(mark, bool) else None,
+                            comment[:COMMENT_CHARS] if isinstance(comment, str) else "")
                 if item.pinned:
                     item.pinned_at = float(entry.get("pinned_at", 0))
             except (KeyError, TypeError, ValueError):
@@ -839,6 +847,7 @@ class Store:
             self.items.remove(existing)
             item.pinned = existing.pinned
             item.pinned_at = existing.pinned_at
+            item.comment = existing.comment
             if existing.mark is not None:          # copied again: the user's decision stays
                 item.mark = existing.mark
                 item.reclassify()
@@ -918,8 +927,18 @@ class Store:
                 if item.mark is None and twin.mark is not None:
                     item.mark = twin.mark
                     item.reclassify()
+                if not item.comment:
+                    item.comment = twin.comment
         self._changed()
         return item.id
+
+    def set_comment(self, item_id, comment):
+        """Give the entry a comment (empty = remove it)."""
+        item = self.get(item_id)
+        comment = " ".join(comment.split())[:COMMENT_CHARS]
+        if item is not None and comment != item.comment:
+            item.comment = comment
+            self._changed()
 
     def set_sensitive(self, item_id, sensitive):
         """Mark an entry as sensitive or not sensitive, whatever the patterns say.
@@ -1679,6 +1698,7 @@ CSS = b"""
 .super-clipboard-card image.super-clipboard-thumb { border-radius: 4px; }
 .super-clipboard-badge { font-size: 0.78em; opacity: 0.55; min-width: 10px; margin-top: 2px; }
 .super-clipboard-meta { font-size: 0.78em; opacity: 0.55; }
+.super-clipboard-comment { font-style: italic; font-size: 0.9em; opacity: 0.8; }
 
 .super-clipboard-tab {
     min-height: 0; min-width: 0; padding: 3px 9px;
@@ -2044,6 +2064,11 @@ class Panel(Gtk.Window):
         self.preview_scroll = Gtk.ScrolledWindow()
         self.preview_scroll.get_style_context().add_class("super-clipboard-previewscroll")
         page.pack_start(self.preview_scroll, True, True, 0)
+        self.comment_entry = Gtk.Entry()
+        self.comment_entry.set_placeholder_text(_("comment_hint"))
+        self.comment_entry.set_max_length(COMMENT_CHARS)
+        self.comment_entry.connect("activate", lambda *_a: self._save_preview())
+        page.pack_start(self.comment_entry, False, False, 0)
         self.preview_note = Gtk.Label(xalign=0, wrap=True)
         self.preview_note.get_style_context().add_class("super-clipboard-hint")
         page.pack_start(self.preview_note, False, False, 0)
@@ -2107,6 +2132,7 @@ class Panel(Gtk.Window):
         details = [_("cat_" + item.category)] if item.category != "text" else []
         details.append(relative_time(item.ts))
         self.preview_meta.set_text("  ·  ".join(part for part in details if part))
+        self.comment_entry.set_text(item.comment)
         self.reveal_button.set_active(False)
         self.reveal_button.set_label(_("reveal"))
         note = ""
@@ -2174,11 +2200,13 @@ class Panel(Gtk.Window):
         item, view = self.preview_item, self.preview_view
         if item is None:
             return None
+        item_id = item.id
         if view is not None and view.get_editable():
             buffer = view.get_buffer()
             text = buffer.get_text(buffer.get_start_iter(), buffer.get_end_iter(), True)
-            return self.app.store.edit_text(item.id, text)
-        return item.id
+            item_id = self.app.store.edit_text(item_id, text)
+        self.app.store.set_comment(item_id, self.comment_entry.get_text())
+        return item_id
 
     def close_preview(self):
         if self.preview_item is None:
@@ -2218,6 +2246,8 @@ class Panel(Gtk.Window):
             self._after_ctrl_up(self._paste_preview_now)
             return True
         if ctrl and key in (Gdk.KEY_z, Gdk.KEY_Z, Gdk.KEY_y, Gdk.KEY_Y):
+            if self.comment_entry.is_focus():
+                return False
             if self.preview_undo is not None and self.preview_view.get_editable():
                 self.preview_undo.step(redo=key in (Gdk.KEY_y, Gdk.KEY_Y) or shift)
             return True
@@ -2348,6 +2378,12 @@ class Panel(Gtk.Window):
         meta.get_style_context().add_class("super-clipboard-meta")
         body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         body.pack_start(content, True, True, 0)
+        if item.comment:
+            note = Gtk.Label(label=item.comment, xalign=0)
+            note.set_ellipsize(Pango.EllipsizeMode.END)
+            note.set_max_width_chars(10)
+            note.get_style_context().add_class("super-clipboard-comment")
+            body.pack_start(note, False, False, 0)
         body.pack_start(meta, False, False, 0)
         card.pack_start(body, True, True, 0)
 
@@ -2403,7 +2439,8 @@ class Panel(Gtk.Window):
         elif self.tab != "all":
             items = [i for i in items if i.category == self.tab]
         if query:
-            items = [i for i in items if i.kind == "text" and query in i.text.lower()]
+            items = [i for i in items if (i.kind == "text" and query in i.text.lower())
+                     or query in i.comment.lower()]
         live = {i.id for i in self.app.store.items}
         self.thumbs = {k: v for k, v in self.thumbs.items() if k in live}
         choose = None
