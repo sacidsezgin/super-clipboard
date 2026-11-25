@@ -1,3 +1,9 @@
+super-clipboard (1.10.0) unstable; urgency=medium
+
+  * Skip copies from programs you exclude in the settings.
+
+ -- Sacid Sezgin <noreply@localhost>  Wed, 25 Nov 2026 13:32:29 +0000
+
 super-clipboard (1.9.0) unstable; urgency=medium
 
   * Delete sensitive entries automatically after a set number of minutes.
