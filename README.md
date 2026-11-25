@@ -153,6 +153,7 @@ The most important settings are in the settings window (gear in the window heade
 | `max_items` | 50 | Number of unpinned entries, 1 to 500. Window: "Entries kept in the history" (5 to 500) |
 | `expire_days` | 30 | Unpinned entries that are older are deleted; 0 = never, at most 3650. Window: "Delete entries after (days)" |
 | `sensitive_clear_minutes` | 0 | Unpinned entries in the Sensitive tab that are older than this many minutes are deleted; 0 = never, at most 10080. Independent of `expire_days`. Window: "Delete sensitive entries after (minutes)" |
+| `exclude_apps` | `[]` | Program names whose copies are not recorded, for example `["keepassxc", "bitwarden"]`; the names are compared with the process name and the executable's file name, ignoring case. Only works for programs that run under X11 or XWayland, see "Limits". Window: "Do not record copies from these programs" (names separated by commas) |
 | `remember_position` | true | Remember the window position per monitor. Window: "Remember the panel position per monitor" |
 | `paste_on_select` | true | Paste immediately when selecting; off = the entry is only placed on the clipboard. Window: "Paste right away when picking an entry" |
 | `paste_shortcut` | `shift+insert` | Key that Super Clipboard sends to paste: `shift+insert`, `ctrl+v` or `ctrl+shift+v`. Window: "Shortcut used for pasting" |
@@ -188,6 +189,7 @@ Super Clipboard stores everything locally in your home directory. Its only netwo
 **What is not recorded.**
 
 - Copies that a password manager marks as confidential (`x-kde-passwordManagerHint`). KeePassXC does this; whether another manager does depends on that manager.
+- Copies from the programs listed under "Do not record copies from these programs" (`exclude_apps`), as far as the source can be told, see "Limits".
 - Empty texts or texts consisting only of whitespace.
 - Texts over 1,000,000 characters and images over 40 million pixels (adjustable in `config.json`).
 
@@ -214,7 +216,7 @@ All commands go through the `super-clipboard` program and talk to the background
 A small background process watches the clipboard; the window is only its display. The path of an entry:
 
 1. You copy something. The process notices the change of clipboard owner and reads which formats are offered.
-2. If the copy carries the password-manager hint, it is discarded. Otherwise Super Clipboard reads text (and, if present, `text/html`) or an image.
+2. If the copy carries the password-manager hint, it is discarded. So is a copy whose source is on the exclusion list: the X server names the process behind the window that owns the clipboard. Otherwise Super Clipboard reads text (and, if present, `text/html`) or an image.
 3. The text is sorted (Sensitive, URLs, Code, Text) and stored. The same text is not stored twice but moved to the front with a new time.
 4. Super+V calls `super-clipboard-toggle`, which opens the window over D-Bus. The window shows the history.
 5. On selection, Super Clipboard puts the entry on the clipboard, closes the window and, after about 0.2 seconds, sends the paste key through a virtual keyboard.
@@ -236,7 +238,8 @@ Super Clipboard is a small tool, and some things it cannot do, by design or for 
 - **Files.** Super Clipboard does not store copied files as files; depending on the file manager, at most their path appears as text.
 - **Formatting.** Only HTML is stored, no RTF. Whether the target application accepts the formatting is up to that application.
 - **Detection of sensitive data.** It is based on patterns and is sometimes wrong. You can correct it per entry with the lock button or Ctrl+L. The masking protects only the display, not the file and not the search.
-- **Password managers.** Only copies with a confidentiality hint are skipped. Without the hint, Super Clipboard records what was copied.
+- **Password managers.** Only copies with a confidentiality hint are skipped, plus those from programs you put on the exclusion list. Without either, Super Clipboard records what was copied.
+- **Excluding programs.** This is a complement to the hint, not a guarantee. The source of a copy is only known for programs that run under X11 or XWayland (in an X11 session: all of them). On Wayland, a copy from a native Wayland program is owned by the compositor, so Super Clipboard sees `gnome-shell` and cannot tell which program it came from; such copies are always recorded, and putting `gnome-shell` on the list would exclude every one of them. Which programs are native Wayland differs by program and version; the log line described next shows `gnome-shell` for those. To find a program's name, start Super Clipboard in a terminal (`super-clipboard --quit; super-clipboard`) and copy something in that program: the line `copy from: …` shows its names. Programs in a Flatpak or Snap sandbox may show a different name than their package name. It needs the X-Resource extension (`libxres1`); without it nothing is excluded.
 - **Pasting without /dev/uinput.** On Wayland Super Clipboard then cannot send a key. The entry is on the clipboard, and the footer of the window says that you must paste yourself with Ctrl+V. On X11, `xdotool` helps.
 - **Window on Wayland.** It appears centered on the monitor with the mouse pointer; placing it at the pointer is only available on X11. Whether the window gets keyboard focus immediately when opening is decided by the desktop.
 - **Monitors.** If you change the arrangement of your screens, Super Clipboard starts centered again for the monitor changed that way; the old position is then no longer assigned.

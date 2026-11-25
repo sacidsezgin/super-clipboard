@@ -12,6 +12,8 @@ clipboard and pastes it into the window you were working in.
 import datetime
 import fcntl
 import hashlib
+import ctypes
+import ctypes.util
 import http.client
 import json
 import locale
@@ -73,6 +75,7 @@ DEFAULT_CONFIG = {
     "remember_position": True,         # reopen where the panel was dragged to (per monitor)
     "expire_days": 30,                 # delete unpinned entries older than this; 0 = never
     "sensitive_clear_minutes": 0,      # delete unpinned sensitive entries older than this; 0 = never
+    "exclude_apps": [],                # program names whose copies are not recorded (X11/XWayland only)
     "paste_formatted": False,          # False: plain text by default, extra button pastes formatted
     "hotkey": "<Super>v",              # GTK accelerator that opens the panel
     "check_updates": True,             # look for new releases on GitHub
@@ -120,6 +123,12 @@ STRINGS = {
         "set_expire": "Delete entries after (days)",
         "set_expire_note": "0 = never delete. Pinned entries always stay.",
         "set_sensitive_clear": "Delete sensitive entries after (minutes)",
+        "set_exclude": "Do not record copies from these programs",
+        "set_exclude_hint": "name, name, …",
+        "set_exclude_note": "Program names, separated by commas, e.g. keepassxc, bitwarden. "
+                            "Only works for programs that run under X11 or XWayland; copies from "
+                            "native Wayland programs cannot be traced. Started from a terminal, "
+                            "Super Clipboard prints the name of each copy's source.",
         "set_remember": "Remember the panel position per monitor",
         "set_reset_pos": "Forget saved positions",
         "set_paste": "Paste right away when picking an entry",
@@ -184,6 +193,12 @@ STRINGS = {
         "set_expire": "Einträge löschen nach (Tagen)",
         "set_expire_note": "0 = nie löschen. Angeheftete Einträge bleiben immer.",
         "set_sensitive_clear": "Sensible Einträge löschen nach (Minuten)",
+        "set_exclude": "Kopien aus diesen Programmen nicht aufzeichnen",
+        "set_exclude_hint": "Name, Name, …",
+        "set_exclude_note": "Programmnamen, durch Komma getrennt, z. B. keepassxc, bitwarden. "
+                            "Funktioniert nur für Programme unter X11 oder XWayland; Kopien aus "
+                            "nativen Wayland-Programmen lassen sich nicht zuordnen. Im Terminal "
+                            "gestartet, gibt Super Clipboard den Namen der Quelle jeder Kopie aus.",
         "set_remember": "Fensterposition pro Monitor merken",
         "set_reset_pos": "Gemerkte Positionen vergessen",
         "set_paste": "Beim Auswählen sofort einfügen",
@@ -273,6 +288,16 @@ def log(*parts):
 
 # --------------------------------------------------------------- config ----
 
+def clean_app_names(names):
+    """Program names as typed by the user -> lower case, no blanks, no duplicates."""
+    seen = []
+    for name in names:
+        name = name.strip().lower() if isinstance(name, str) else ""
+        if name and name not in seen:
+            seen.append(name)
+    return seen
+
+
 def load_config():
     cfg = dict(DEFAULT_CONFIG)
     try:
@@ -297,6 +322,7 @@ def load_config():
     cfg["max_items"] = max(1, min(int(cfg["max_items"]), 500))
     cfg["expire_days"] = max(0, min(int(cfg["expire_days"]), 3650))
     cfg["sensitive_clear_minutes"] = max(0, min(int(cfg["sensitive_clear_minutes"]), 10080))
+    cfg["exclude_apps"] = clean_app_names(cfg["exclude_apps"])
     return cfg
 
 
@@ -1028,6 +1054,124 @@ class VirtualKeyboard:
 def session_is_wayland():
     return os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland" or \
         bool(os.environ.get("WAYLAND_DISPLAY"))
+
+
+# -------------------------------------------------------- copy source ----
+
+class _XResClientIdSpec(ctypes.Structure):
+    _fields_ = [("client", ctypes.c_ulong), ("mask", ctypes.c_uint)]
+
+
+class _XResClientIdValue(ctypes.Structure):
+    _fields_ = [("spec", _XResClientIdSpec), ("length", ctypes.c_long), ("value", ctypes.c_void_p)]
+
+
+_XErrorHandler = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+_ignore_x_error = _XErrorHandler(lambda _display, _event: 0)
+
+
+class CopySource:
+    """Which program owns the clipboard (X11 and XWayland only).
+
+    The owner window of the CLIPBOARD selection is mapped to the process behind its
+    X connection with the X-Resource extension. That works for XWayland programs too;
+    a copy from a native Wayland program is owned by the compositor (gnome-shell), so its
+    real source is unknown. Whenever something is unclear the answer is "no names" and
+    the copy is recorded."""
+
+    def __init__(self):
+        self._tried = False
+        self._x11 = None
+        self._xres = None
+        self._display = None
+        self._atom = 0
+
+    def _open(self):
+        self._tried = True
+        if GdkX11 is None or not isinstance(Gdk.Display.get_default(), GdkX11.X11Display):
+            return
+        try:
+            x11 = ctypes.CDLL(ctypes.util.find_library("X11") or "libX11.so.6")
+            xres = ctypes.CDLL(ctypes.util.find_library("XRes") or "libXRes.so.1")
+            x11.XOpenDisplay.restype = ctypes.c_void_p
+            x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+            x11.XInternAtom.restype = ctypes.c_ulong
+            x11.XInternAtom.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int]
+            x11.XGetSelectionOwner.restype = ctypes.c_ulong
+            x11.XGetSelectionOwner.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+            x11.XSetErrorHandler.restype = _XErrorHandler
+            x11.XSetErrorHandler.argtypes = [_XErrorHandler]
+            x11.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            xres.XResQueryVersion.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_int),
+                                              ctypes.POINTER(ctypes.c_int)]
+            xres.XResQueryClientIds.argtypes = [
+                ctypes.c_void_p, ctypes.c_long, ctypes.POINTER(_XResClientIdSpec),
+                ctypes.POINTER(ctypes.c_long), ctypes.POINTER(ctypes.POINTER(_XResClientIdValue))]
+            xres.XResGetClientPid.argtypes = [ctypes.POINTER(_XResClientIdValue)]
+            xres.XResClientIdsDestroy.argtypes = [ctypes.c_long, ctypes.POINTER(_XResClientIdValue)]
+            display = x11.XOpenDisplay(None)
+            if not display:
+                return
+            major, minor = ctypes.c_int(0), ctypes.c_int(0)
+            if not xres.XResQueryVersion(display, ctypes.byref(major), ctypes.byref(minor)) or \
+                    (major.value, minor.value) < (1, 2):
+                return      # the server cannot name the process behind a connection
+            self._atom = x11.XInternAtom(display, b"CLIPBOARD", 0)
+            self._x11, self._xres, self._display = x11, xres, display
+        except (OSError, AttributeError) as err:
+            log("cannot look up the source of a copy:", err)
+
+    def pid(self):
+        """Process id behind the clipboard owner, or 0 if it cannot be told."""
+        if not self._tried:
+            self._open()
+        if self._display is None:
+            return 0
+        # Xlib's default error handler ends the process; the owner window may be gone by now.
+        previous = self._x11.XSetErrorHandler(_ignore_x_error)
+        found = 0
+        try:
+            owner = self._x11.XGetSelectionOwner(self._display, self._atom)
+            if owner:
+                spec = _XResClientIdSpec(owner, 1 << 1)     # XRES_CLIENT_ID_PID_MASK
+                count = ctypes.c_long(0)
+                values = ctypes.POINTER(_XResClientIdValue)()
+                self._xres.XResQueryClientIds(self._display, 1, ctypes.byref(spec),
+                                              ctypes.byref(count), ctypes.byref(values))
+                if values:
+                    for index in range(count.value):
+                        found = max(found, self._xres.XResGetClientPid(ctypes.byref(values[index])))
+                    self._xres.XResClientIdsDestroy(count.value, values)
+            self._x11.XSync(self._display, 0)
+        finally:
+            self._x11.XSetErrorHandler(previous)
+        return max(found, 0)
+
+    @staticmethod
+    def names_of(pid):
+        """Lower-case names a program goes by: process name and executable file name."""
+        names = set()
+        if pid <= 0:
+            return names
+        try:
+            with open("/proc/%d/comm" % pid, encoding="utf-8", errors="replace") as handle:
+                names.add(handle.read().strip().lower())
+        except OSError:
+            pass
+        try:
+            names.add(os.path.basename(os.readlink("/proc/%d/exe" % pid)).lower())
+        except OSError:
+            pass
+        names.discard("")
+        return names
+
+    def names(self):
+        return self.names_of(self.pid())
+
+    @staticmethod
+    def excluded(names, wanted):
+        """Is one of the names on the list? Process names are cut at 15 characters."""
+        return any(name == entry or name == entry[:15] for entry in wanted for name in names)
 
 
 # --------------------------------------------------------------- hotkey ----
@@ -2498,6 +2642,16 @@ class SettingsWindow(Gtk.Window):
         grid.attach(note, 0, self._line, 2, 1)
         self._line += 1
 
+        self.exclude_apps = Gtk.Entry(text=", ".join(cfg["exclude_apps"]),
+                                      placeholder_text=_("set_exclude_hint"))
+        self.exclude_apps.set_width_chars(24)
+        self._add(grid, "set_exclude", self.exclude_apps)
+        exnote = Gtk.Label(label=_("set_exclude_note"), xalign=0, wrap=True)
+        exnote.set_max_width_chars(48)
+        exnote.get_style_context().add_class("dim-label")
+        grid.attach(exnote, 0, self._line, 2, 1)
+        self._line += 1
+
         self.remember = Gtk.Switch(active=cfg["remember_position"])
         self._add(grid, "set_remember", self.remember)
         self.reset_positions = Gtk.Button(label=_("set_reset_pos"))
@@ -2704,6 +2858,7 @@ class SettingsWindow(Gtk.Window):
         cfg["max_items"] = self.max_items.get_value_as_int()
         cfg["expire_days"] = self.expire_days.get_value_as_int()
         cfg["sensitive_clear_minutes"] = self.sensitive_clear.get_value_as_int()
+        cfg["exclude_apps"] = clean_app_names(self.exclude_apps.get_text().split(","))
         cfg["remember_position"] = self.remember.get_active()
         cfg["paste_on_select"] = self.paste.get_active()
         cfg["paste_formatted"] = self.formatted.get_active()
@@ -2760,6 +2915,7 @@ class SuperClipboard(Gtk.Application):
         self._interface = None
         self._has_html = False
         self._owner = None
+        self._source = CopySource()
         self._rich = None
 
     # -- startup ----------------------------------------------------------
@@ -2969,6 +3125,11 @@ class SuperClipboard(Gtk.Application):
         names = {atom.name() for atom in atoms} if atoms else set()
         if not names or self.SECRET_TARGET in names:
             return  # empty, or flagged as a secret by a password manager
+        source = self._source.names()
+        if source:
+            log("copy from:", ", ".join(sorted(source)))
+            if CopySource.excluded(source, self.cfg["exclude_apps"]):
+                return  # the user does not want this program recorded
         if names & self.TEXT_TARGETS:
             self._has_html = "text/html" in names
             clipboard.request_text(self._on_text)

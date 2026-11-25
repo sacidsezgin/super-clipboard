@@ -24,7 +24,9 @@ for Zorin OS (GNOME, Wayland or X11) and other Ubuntu-based desktops.
 | drag header    | move the panel                                |
 
 Text and images are recorded. Entries that a password manager marks as
-secret (KeePassXC and others) are skipped.
+secret (KeePassXC and others) are skipped, and so are copies from programs you
+list in the settings (`exclude_apps`; only programs running under X11 or
+XWayland can be told apart, native Wayland programs cannot).
 
 ## Preview and editing
 
@@ -84,6 +86,11 @@ The gear button in the panel opens a settings window. Everything is stored in
   (default 30)
 - `sensitive_clear_minutes` - delete unpinned sensitive entries older than this many
   minutes, independent of `expire_days`; 0 = never (default 0)
+- `exclude_apps` - process names whose copies are not recorded, e.g.
+  `["keepassxc", "bitwarden"]` (default none). Works for X11 and XWayland programs
+  only; a copy from a native Wayland program is seen as coming from `gnome-shell`
+  and is always recorded. Start the program in a terminal to see the name of each
+  copy's source.
 - `check_updates` - look for new releases on GitHub at startup and every 12 hours
   (default true)
 
