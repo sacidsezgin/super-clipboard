@@ -14,6 +14,7 @@ for Zorin OS (GNOME, Wayland or X11) and other Ubuntu-based desktops.
 | Enter or click | paste the entry into the window you came from |
 | just type      | filter the text entries                       |
 | Ctrl+P         | pin / unpin (pinned entries survive "Clear all") |
+| Ctrl+L         | mark as sensitive / not sensitive             |
 | Space          | preview of the entry (full text or large image); while the search field has text, Space is just a space |
 | Shift+Enter    | paste the other way (with formatting if plain is the default, and vice versa) |
 | Ctrl+1 … Ctrl+9 | paste the first … ninth entry of the list (scrolled-out ones too; if the tab shows fewer, the whole history is counted) |

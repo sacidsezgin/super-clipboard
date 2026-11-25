@@ -52,7 +52,7 @@ except (ValueError, ImportError):
 APP_ID = "org.super_clipboard.Clipboard"
 APP_PATH = "/org/super_clipboard/Clipboard"   # D-Bus object path GApplication derives from APP_ID
 APP_NAME = "Super Clipboard"
-VERSION = "1.8.1"
+VERSION = "1.8.2"
 AUTHOR = "Sacid Sezgin"
 TOGGLE_COMMAND = "/usr/bin/super-clipboard-toggle"
 
@@ -86,6 +86,7 @@ DEFAULT_CONFIG = {
 
 STRINGS = {
     "en": {
+        "mark_sensitive": "Mark as sensitive (Ctrl+L)", "mark_normal": "Not sensitive (Ctrl+L)",
         "title": "Clipboard",
         "clear": "Clear all",
         "search": "Type to search",
@@ -148,6 +149,7 @@ STRINGS = {
         "upd_failed_title": "Super Clipboard could not be updated",
     },
     "de": {
+        "mark_sensitive": "Als sensibel markieren (Strg+L)", "mark_normal": "Nicht sensibel (Strg+L)",
         "title": "Zwischenablage",
         "clear": "Alle löschen",
         "search": "Tippen zum Suchen",
@@ -340,24 +342,58 @@ ANALYSE_CHARS = 20000
 
 _SECRET_BLOCKS = (
     re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|\Z)", re.S),
+    # tokens with a fixed vendor prefix
     re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|glpat-[A-Za-z0-9_\-]{20,}"
-               r"|sk-[A-Za-z0-9_\-]{20,}|xox[abprs]-[A-Za-z0-9\-]{10,}|AKIA[0-9A-Z]{16}"
-               r"|AIza[0-9A-Za-z_\-]{35})"),
+               r"|xox[abprs]-[A-Za-z0-9\-]{10,}|xapp-\d-[A-Za-z0-9\-]{10,}|AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}"
+               r"|AIza[0-9A-Za-z_\-]{35}|ya29\.[A-Za-z0-9_\-]{20,}"
+               r"|(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{16,}|whsec_[A-Za-z0-9]{16,}"
+               r"|SG\.[A-Za-z0-9_\-]{16,}\.[A-Za-z0-9_\-]{16,}|npm_[A-Za-z0-9]{36}|pypi-[A-Za-z0-9_\-]{40,}"
+               r"|hf_[A-Za-z0-9]{30,}|dop_v1_[a-f0-9]{40,}|shp(?:at|ca|pa|ss)_[a-f0-9]{32}"
+               r"|glc_[A-Za-z0-9+/=]{30,}|lin_api_[A-Za-z0-9]{30,})"),
+    # OpenAI / Anthropic style keys; a digit is required so that "sk-learn-for-pandas" stays text
+    re.compile(r"\bsk-(?=[A-Za-z0-9_\-]*\d)[A-Za-z0-9_\-]{20,}"),
+    re.compile(r"https://hooks\.slack\.com/services/T[A-Za-z0-9]+/B[A-Za-z0-9]+/[A-Za-z0-9]{16,}"),
     re.compile(r"\beyJ[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{8,}\.[A-Za-z0-9_\-]{4,}"),   # JWT
 )
-_SECRET_WORD = r"(?:pass(?:word|wort|wd|phrase)?|pwd|kennwort|secret|token|api[_-]?key|auth[_-]?key" \
-               r"|access[_-]?key|private[_-]?key)"
+_SECRET_WORD = r"(?:pass(?:word|wort|wd|phrase|code)?|pwd|kennwort|zugangscode|secret|geheim|token" \
+               r"|api[_-]?key|auth[_-]?key|access[_-]?key|private[_-]?key|secret[_-]?key|signing[_-]?key" \
+               r"|encryption[_-]?key|master[_-]?key|session[_-]?(?:id|key)|credentials?)"
 # password: hunter2   /   DB_PASSWORD=hunter2   /   "apiKey": "abc123"
-_SECRET_ASSIGN = re.compile(r"(?i)" + _SECRET_WORD + r"[a-z0-9_]*[\"']?\s*(?:=>|[:=])\s*[\"']?"
-                            r"([^\s\"',;)]{4,})")
+_SECRET_ASSIGN = re.compile(r"(?i)" + _SECRET_WORD + r"[a-z0-9_]{0,40}[\"']?\s*(?:=>|[:=])\s*"
+                            r"(?:\"([^\"\n]{4,})\"|'([^'\n]{4,})'|[\"']?([^\s\"',;)]{4,}))")
+# "mein Passwort ist hunter2" / "the password is hunter2" (the value must look like a password)
+_SECRET_SAID = re.compile(r"(?i)\b(?:pass(?:word|wort|phrase)|kennwort)\s+(?:is|ist|lautet|=)\s*[\"']?"
+                          r"([^\s\"',;)]{6,})")
 # define('DB_PASSWORD', 'hunter2');   define('AUTH_KEY', '...');
-_SECRET_DEFINE = re.compile(r"(?i)[\"'][a-z0-9_]*(?:pass|secret|key|salt|token)[a-z0-9_]*[\"']\s*,"
+_SECRET_DEFINE = re.compile(r"(?i)[\"'][a-z0-9_]{0,40}(?:pass|secret|key|salt|token)[a-z0-9_]{0,40}[\"']\s*,"
                             r"\s*[\"']([^\"']{4,})[\"']")
+# Authorization: Bearer abc...   /   Authorization: Basic dXNlcjpwYXNz
+_SECRET_BEARER = re.compile(r"(?i)\b(?:bearer|basic|token)\s+([A-Za-z0-9\-._~+/]{16,}=*)")
 _SECRET_URL = re.compile(r"\b[a-z][a-z0-9+.\-]*://[^\s/:@]+:([^\s/@]+)@")
 _IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,3})?\b")
 _CARD = re.compile(r"(?<![\d.,])[3-6]\d(?:[ -]?\d){11,17}(?![\d.,])")
 _NOT_A_SECRET = {"true", "false", "null", "none", "undefined", "string", "text", "password",
-                 "passwort", "required", "optional", "empty", "hidden", "bool", "boolean"}
+                 "passwort", "required", "optional", "empty", "hidden", "bool", "boolean", "nil",
+                 "your_password", "yourpassword", "changeme", "example", "redacted", "secret"}
+# values that name a variable or a field instead of being a secret:
+# self.password, config.token, password_hash, tokenValue, request["token"]
+_IDENTIFIER_VALUE = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+(?:\[.*)?$|[A-Za-z_]\w*\[.*|"
+                               r"[a-z]+(?:_[a-z]+)+$|[a-z]+(?:[A-Z][a-z]+)+$|[A-Z]+(?:_[A-Z]+)+$")
+
+
+def _mixed(value):
+    """At least two of: lower case, upper case, digits - words alone are not keys."""
+    return sum((any(c.islower() for c in value), any(c.isupper() for c in value),
+                any(c.isdigit() for c in value))) >= 2
+
+
+def _plausible_secret(value):
+    """Filters out placeholders and code that merely mentions a password field."""
+    if value.lower() in _NOT_A_SECRET or value[0] in "$<({[%@" or "(" in value or "{{" in value:
+        return False
+    if len(set(value)) == 1 or re.fullmatch(r"[*•x#.\-_]+", value, re.I):     # ****, xxxx, ----
+        return False
+    return not _IDENTIFIER_VALUE.match(value)
 
 
 def _iban_ok(candidate):
@@ -414,11 +450,28 @@ def find_secrets(text):
     spans = []
     for pattern in _SECRET_BLOCKS:
         spans += [match.span() for match in pattern.finditer(text)]
-    for pattern in (_SECRET_ASSIGN, _SECRET_DEFINE):
-        for match in pattern.finditer(text):
-            value = match.group(1)
-            if value.lower() in _NOT_A_SECRET or value[0] in "$<({[" or "(" in value:
-                continue
+    for match in _SECRET_ASSIGN.finditer(text):
+        group = next(index for index in (1, 2, 3) if match.group(index))
+        value = match.group(group)
+        start, end = match.span(group)
+        if group == 3:
+            # in a web address "?password=abc&user=x" the value ends at the next "&"
+            token_start = max(text.rfind(" ", 0, start), text.rfind("\n", 0, start)) + 1
+            if "?" in text[token_start:start] and "&" in value:
+                value = value.split("&")[0]
+                end = start + len(value)
+        if len(value) >= 4 and _plausible_secret(value):
+            spans.append((start, end))
+    for match in _SECRET_DEFINE.finditer(text):
+        if _plausible_secret(match.group(1)):
+            spans.append(match.span(1))
+    for match in _SECRET_SAID.finditer(text):
+        value = match.group(1).rstrip(".!?")
+        if _plausible_secret(value) and (_looks_like_password(value) or
+                                         (_mixed(value) and any(c.isdigit() for c in value))):
+            spans.append((match.start(1), match.start(1) + len(value)))
+    for match in _SECRET_BEARER.finditer(text):
+        if _mixed(match.group(1)) and _plausible_secret(match.group(1)):
             spans.append(match.span(1))
     spans += [match.span(1) for match in _SECRET_URL.finditer(text)]
     spans += [match.span() for match in _IBAN.finditer(text) if _iban_ok(match.group())]
@@ -541,12 +594,20 @@ def looks_like_url(text):
     return 0 < len(lines) <= 100 and all(_URL_LINE.match(line) for line in lines)
 
 
-def classify(text):
-    """-> ("sensitive" | "url" | "code" | "text", spans to mask)"""
+def classify(text, mark=None):
+    """-> ("sensitive" | "url" | "code" | "text", spans to mask)
+
+    mark is the user's decision: True = sensitive, False = not sensitive,
+    None = let the patterns decide.
+    """
     sample = text[:ANALYSE_CHARS]
-    spans = find_secrets(sample)
-    if spans:
-        return "sensitive", spans
+    if mark is not False:
+        spans = find_secrets(sample)
+        if spans:
+            return "sensitive", spans
+        if mark:
+            start = len(sample) - len(sample.lstrip())
+            return "sensitive", ((start, max(start + 1, len(sample.rstrip()))),)
     if looks_like_url(sample):
         return "url", ()
     return ("code" if looks_like_code(sample) else "text"), ()
@@ -607,18 +668,22 @@ def monitor_key(monitor):
 # ---------------------------------------------------------------- store ----
 
 class Item:
-    __slots__ = ("id", "kind", "text", "pinned", "pinned_at", "ts", "category", "spans", "html")
+    __slots__ = ("id", "kind", "text", "pinned", "pinned_at", "ts", "category", "spans", "html", "mark")
 
-    def __init__(self, item_id, kind, text="", pinned=False, ts=None, html=""):
+    def __init__(self, item_id, kind, text="", pinned=False, ts=None, html="", mark=None):
         self.html = html           # formatted version (text/html) if the copy had one
+        self.mark = mark           # the user's decision: True = sensitive, False = not, None = automatic
         self.id = item_id
         self.kind = kind          # "text" or "image"
         self.text = text          # only for kind == "text"
         self.pinned = pinned
         self.pinned_at = 0.0      # when it was pinned (0 = unknown, e.g. pinned by an older version)
         self.ts = ts or time.time()
-        if kind == "text":
-            self.category, self.spans = classify(text)   # "text", "code", "url" or "sensitive"
+        self.reclassify()
+
+    def reclassify(self):
+        if self.kind == "text":
+            self.category, self.spans = classify(self.text, self.mark)   # "text", "code", "url" or "sensitive"
         else:
             self.category, self.spans = "image", ()
 
@@ -627,7 +692,7 @@ class Item:
         self.text = text
         self.html = ""
         self.id = "t" + hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()[:40]
-        self.category, self.spans = classify(text)
+        self.reclassify()
 
     @property
     def display_text(self):
@@ -647,6 +712,8 @@ class Item:
             data["text"] = self.text
             if self.html:
                 data["html"] = self.html
+            if self.mark is not None:
+                data["sensitive"] = self.mark
         return data
 
 
@@ -676,9 +743,11 @@ class Store:
         for entry in raw.get("items", []) if isinstance(raw, dict) else []:
             try:
                 html = entry.get("html", "")
+                mark = entry.get("sensitive")
                 item = Item(str(entry["id"]), entry["kind"], entry.get("text", ""),
                             bool(entry.get("pinned")), float(entry.get("ts", 0)),
-                            html if isinstance(html, str) else "")
+                            html if isinstance(html, str) else "",
+                            mark if isinstance(mark, bool) else None)
                 if item.pinned:
                     item.pinned_at = float(entry.get("pinned_at", 0))
             except (KeyError, TypeError, ValueError):
@@ -738,6 +807,9 @@ class Store:
             self.items.remove(existing)
             item.pinned = existing.pinned
             item.pinned_at = existing.pinned_at
+            if existing.mark is not None:          # copied again: the user's decision stays
+                item.mark = existing.mark
+                item.reclassify()
         self.items.insert(0, item)
         self._trim()
         self._changed()
@@ -811,8 +883,24 @@ class Store:
                 self.items.remove(twin)
                 if twin.pinned and not item.pinned:
                     item.pinned, item.pinned_at = True, twin.pinned_at
+                if item.mark is None and twin.mark is not None:
+                    item.mark = twin.mark
+                    item.reclassify()
         self._changed()
         return item.id
+
+    def set_sensitive(self, item_id, sensitive):
+        """Mark an entry as sensitive or not sensitive, whatever the patterns say.
+        Only a decision that differs from the automatic result is remembered."""
+        item = self.get(item_id)
+        if item is None or item.kind != "text":
+            return
+        item.mark = None
+        item.reclassify()
+        if (item.category == "sensitive") != sensitive:
+            item.mark = sensitive
+            item.reclassify()
+        self._changed()
 
     def toggle_pin(self, item_id):
         item = self.get(item_id)
@@ -1978,6 +2066,12 @@ class Panel(Gtk.Window):
                 "super-clipboard-format-symbolic", _("fmt_with") if plain_default else _("fmt_without"),
                 lambda item_id: self.app.paste_item(item_id, formatted=plain_default), item.id),
                 False, False, 0)
+        if item.kind == "text":
+            sensitive = item.category == "sensitive"
+            buttons.pack_start(self._icon_button(
+                "changes-allow-symbolic" if sensitive else "changes-prevent-symbolic",
+                _("mark_normal") if sensitive else _("mark_sensitive"),
+                self._toggle_sensitive, item.id), False, False, 0)
         pin = self._icon_button("super-clipboard-pin-symbolic", _("unpin") if item.pinned else _("pin"),
                                 self.app.store.toggle_pin, item.id)
         if item.pinned:
@@ -2101,6 +2195,10 @@ class Panel(Gtk.Window):
             if row is not None:
                 self.app.store.toggle_pin(row.item_id)
             return True
+        if ctrl and key in (Gdk.KEY_l, Gdk.KEY_L):
+            if row is not None:
+                self._toggle_sensitive(row.item_id)
+            return True
         if ctrl and (Gdk.KEY_1 <= key <= Gdk.KEY_9 or Gdk.KEY_KP_1 <= key <= Gdk.KEY_KP_9):
             self._quick_pick(key - (Gdk.KEY_1 if key <= Gdk.KEY_9 else Gdk.KEY_KP_1))
             return True
@@ -2164,6 +2262,21 @@ class Panel(Gtk.Window):
     def _on_hidden(self, *_args):
         self.pending_action = None
         self._commit_preview_edit()       # closed while editing (click outside, Super key): keep the edit
+
+    def _toggle_sensitive(self, item_id):
+        """Flip an entry between sensitive and not sensitive. In the Sensitive tab (or a
+        tab it would leave) the row disappears, so the selection moves to its neighbour."""
+        item = self.app.store.get(item_id)
+        if item is None or item.kind != "text":
+            return
+        row = next((r for r in self.listbox.get_children() if r.item_id == item_id), None)
+        if row is not None and self.tab in ("sensitive", "text", "code", "url"):
+            rows = self.listbox.get_children()
+            index = rows.index(row)
+            neighbour = rows[index + 1] if index + 1 < len(rows) else (rows[index - 1] if index else None)
+            if neighbour is not None:
+                self.listbox.select_row(neighbour)
+        self.app.store.set_sensitive(item_id, item.category != "sensitive")
 
     def _remove_keeping_position(self, row):
         rows = self.listbox.get_children()

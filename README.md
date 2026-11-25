@@ -56,6 +56,7 @@ Everything can be done with the keyboard; the mouse works alongside. The window 
 | Typing | search in the texts; the tabs stay active |
 | Del | delete the selected entry (only when the search field is empty) |
 | Ctrl+P | pin or unpin the entry |
+| Ctrl+L | mark the entry as sensitive, or as not sensitive |
 | Left / Right arrow | switch tab (only when the search field is empty) |
 | Ctrl+Tab | next tab; with Shift backwards |
 | Esc | clear the search text, then close the window; in the preview, back to the list |
@@ -63,7 +64,7 @@ Everything can be done with the keyboard; the mouse works alongside. The window 
 
 **Ctrl+number in detail.** Counting happens in the list that is currently shown, including entries outside the visible area. If the list shows fewer entries than the number (other tab, search), the whole history is counted. The paste only happens when you release Ctrl.
 
-**With the mouse.** When the pointer is over an entry, buttons appear on the right: formatting (only for formatted entries), pin, delete. "Clear all" removes all entries that are not pinned. The gear opens the settings. Unpinned entries are pushed out by newer ones once the maximum number is reached; pinned entries stay and do not count.
+**With the mouse.** When the pointer is over an entry, buttons appear on the right: formatting (only for formatted entries), lock (mark as sensitive or not sensitive), pin, delete. "Clear all" removes all entries that are not pinned. The gear opens the settings. Unpinned entries are pushed out by newer ones once the maximum number is reached; pinned entries stay and do not count.
 
 ## Tabs and sensitive data
 
@@ -85,12 +86,16 @@ If a text falls into several groups, the order is Sensitive, URLs, Code, Text. A
 
 - Passwords and keys in the form `password: value` or `DB_PASSWORD=value` (also passwort, secret, token, api key, access key and related) as well as `define('DB_PASSWORD', '…')`
 - Credentials in addresses, for example `mysql://user:password@host`
-- API tokens from GitHub, GitLab, Slack, AWS, Google and keys starting with `sk-`; JSON Web Tokens
+- API tokens from GitHub, GitLab, Slack (also webhook addresses), AWS, Google, Stripe, SendGrid, npm, PyPI, Hugging Face and similar, keys starting with `sk-` (with a digit in them); JSON Web Tokens
+- `Authorization: Bearer …` and `Basic …` headers
+- sentences such as "the password is …" when the value looks like a password; values in quotes may contain spaces
 - private keys in PEM format
 - IBANs with a valid check digit and card numbers with a valid Luhn checksum
 - single strings that look like a password: 8 to 72 characters with upper and lower case letters, a digit and a special character, or long random keys of 24 characters or more
 
-For the last rule, `_`, `-` and `.` do not count as special characters. Names such as `Mobile_pos2` or `Report_v2.docx` therefore stay ordinary text. Email addresses, phone numbers and names are not considered sensitive. Only the first 20,000 characters of a text are examined.
+Placeholders and code that only mentions a field are not masked: `${DB_PASSWORD}`, `<your-token>`, `****`, `self.password`, `password_hash`, `os.environ[…]`. For the last rule, `_`, `-` and `.` do not count as special characters. Names such as `Mobile_pos2` or `Report_v2.docx` therefore stay ordinary text. Email addresses, phone numbers and names are not considered sensitive. Only the first 20,000 characters of a text are examined.
+
+**Correcting the sorting.** If the detection is wrong, hover over the entry and click the lock button, or press Ctrl+L. An entry that was not detected becomes sensitive and is masked completely; a wrongly detected one becomes ordinary text (Text, Code or URLs). The decision is saved with the entry, survives copying the same text again and editing it in the preview, and is dropped only when the entry is deleted.
 
 **What the masking looks like.** The list shows the beginning and end of the secret with dots in between, for example `ghp_••••••••••••6789`. Multi-line secrets such as a private key appear only as dots. The masking applies to the display only:
 
@@ -229,7 +234,7 @@ Super Clipboard is a small tool, and some things it cannot do, by design or for 
 
 - **Files.** Super Clipboard does not store copied files as files; depending on the file manager, at most their path appears as text.
 - **Formatting.** Only HTML is stored, no RTF. Whether the target application accepts the formatting is up to that application.
-- **Detection of sensitive data.** It is based on patterns and is sometimes wrong. There is no manual re-sorting. The masking protects only the display, not the file and not the search.
+- **Detection of sensitive data.** It is based on patterns and is sometimes wrong. You can correct it per entry with the lock button or Ctrl+L. The masking protects only the display, not the file and not the search.
 - **Password managers.** Only copies with a confidentiality hint are skipped. Without the hint, Super Clipboard records what was copied.
 - **Pasting without /dev/uinput.** On Wayland Super Clipboard then cannot send a key. The entry is on the clipboard, and the footer of the window says that you must paste yourself with Ctrl+V. On X11, `xdotool` helps.
 - **Window on Wayland.** It appears centered on the monitor with the mouse pointer; placing it at the pointer is only available on X11. Whether the window gets keyboard focus immediately when opening is decided by the desktop.
@@ -247,7 +252,7 @@ Most problems concern the keyboard shortcut or pasting. Messages from the progra
 | Window opens, but nothing is pasted | If the footer says "Entry is copied on Enter – then paste with Ctrl+V", access to `/dev/uinput` is missing. Log out and back in once; `ls -l /dev/uinput` shows whether the permission is set. On X11, `sudo apt install xdotool` helps. |
 | Nothing or the wrong thing arrives in a terminal | The default is `shift+insert`. If the program needs a different key, set "Shortcut used for pasting" to `ctrl+shift+v` in the settings. |
 | Window appears on the wrong monitor | Use "Forget saved positions" in the settings. On Wayland the mouse pointer decides, on X11 the active window. |
-| Entry is wrongly sensitive or not sensitive | This is down to the pattern detection. Deleting and copying again changes nothing, because the text is sorted the same way again; a correction per entry is not provided. |
+| Entry is wrongly sensitive or not sensitive | This is down to the pattern detection. Hover over the entry and click the lock button, or press Ctrl+L; the decision is remembered for that entry. |
 | History is empty after login | Check whether "Keep the history after logging out" is on and whether `expire_days` has already deleted the entries. |
 | The software app shows an old version or the name `super-clipboard` | For the installed application run `gnome-software --quit` and reopen the app; if necessary log out and back in. For an opened .deb file see "Limits". |
 | "Could not check for updates" | No network connection, or GitHub's limit for anonymous requests (60 per hour per address) was reached. The next check runs by itself; `super-clipboard --check-update` shows the error. |
