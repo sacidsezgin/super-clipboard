@@ -3,7 +3,35 @@
 set -e
 cd "$(dirname "$0")"
 
-VERSION=$(sed -n 's/^VERSION = "\(.*\)"$/\1/p' src/super-clipboard)
+current_version() { sed -n 's/^VERSION = "\(.*\)"$/\1/p' src/super-clipboard; }
+
+# Local builds: the version is only bumped by the release commit that GitHub
+# Actions pushes after each push to main. Fetch it first (waiting for it if
+# our commits were just pushed), so the build never carries the previous
+# version. Skipped in CI and with NO_SYNC=1.
+if [ -z "${CI:-}" ] && [ -z "${NO_SYNC:-}" ] && git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
+    sync_upstream() {
+        git fetch --tags -q || { echo "warning: git fetch failed, building the local state" >&2; return 1; }
+        if [ -n "$(git rev-list 'HEAD..@{u}')" ]; then
+            echo "Pulling new commits from origin..."
+            git pull --rebase --autostash -q
+        fi
+    }
+    sync_upstream || true
+    # Nothing unpushed and a release still planned that is not in the tree yet:
+    # the workflow is running, wait for its release commit (max 5 minutes).
+    tries=0
+    while [ -z "$(git rev-list '@{u}..HEAD')" ] && [ "$tries" -lt 30 ]; do
+        planned=$(python3 -B tools/release.py --dry-run 2>/dev/null | sed -n '1s/^Release v\([0-9][0-9.]*\) .*/\1/p')
+        [ -n "$planned" ] && [ "$planned" != "$(current_version)" ] || break
+        echo "Waiting for release commit v$planned from GitHub Actions... (NO_SYNC=1 skips)"
+        sleep 10
+        tries=$((tries + 1))
+        sync_upstream || break
+    done
+fi
+
+VERSION=$(current_version)
 PKG="build/super-clipboard_${VERSION}_all"
 rm -rf build
 mkdir -p "$PKG/DEBIAN"
