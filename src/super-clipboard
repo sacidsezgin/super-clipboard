@@ -52,7 +52,7 @@ except (ValueError, ImportError):
 APP_ID = "org.super_clipboard.Clipboard"
 APP_PATH = "/org/super_clipboard/Clipboard"   # D-Bus object path GApplication derives from APP_ID
 APP_NAME = "Super Clipboard"
-VERSION = "1.8.2"
+VERSION = "1.9.0"
 AUTHOR = "Sacid Sezgin"
 TOGGLE_COMMAND = "/usr/bin/super-clipboard-toggle"
 

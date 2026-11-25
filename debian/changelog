@@ -1,3 +1,9 @@
+super-clipboard (1.9.0) unstable; urgency=medium
+
+  * Delete sensitive entries automatically after a set number of minutes.
+
+ -- Sacid Sezgin <noreply@localhost>  Wed, 25 Nov 2026 13:19:49 +0000
+
 super-clipboard (1.8.2) unstable; urgency=medium
 
   * Mark entries as sensitive or not sensitive, detect more secrets.
