@@ -152,6 +152,7 @@ The most important settings are in the settings window (gear in the window heade
 | --- | --- | --- |
 | `max_items` | 50 | Number of unpinned entries, 1 to 500. Window: "Entries kept in the history" (5 to 500) |
 | `expire_days` | 30 | Unpinned entries that are older are deleted; 0 = never, at most 3650. Window: "Delete entries after (days)" |
+| `sensitive_clear_minutes` | 0 | Unpinned entries in the Sensitive tab that are older than this many minutes are deleted; 0 = never, at most 10080. Independent of `expire_days`. Window: "Delete sensitive entries after (minutes)" |
 | `remember_position` | true | Remember the window position per monitor. Window: "Remember the panel position per monitor" |
 | `paste_on_select` | true | Paste immediately when selecting; off = the entry is only placed on the clipboard. Window: "Paste right away when picking an entry" |
 | `paste_shortcut` | `shift+insert` | Key that Super Clipboard sends to paste: `shift+insert`, `ctrl+v` or `ctrl+shift+v`. Window: "Shortcut used for pasting" |
@@ -190,7 +191,7 @@ Super Clipboard stores everything locally in your home directory. Its only netwo
 - Empty texts or texts consisting only of whitespace.
 - Texts over 1,000,000 characters and images over 40 million pixels (adjustable in `config.json`).
 
-**Deleting the history.** "Clear all" removes everything except pinned entries. To delete everything, run `super-clipboard --quit` and remove `~/.local/share/super-clipboard`. If you do not want the history on disk, turn off "Keep the history after logging out"; Super Clipboard then writes no history.json. Copied images still sit in the images folder while running and are deleted at the next start.
+**Deleting the history.** "Clear all" removes everything except pinned entries. To delete everything, run `super-clipboard --quit` and remove `~/.local/share/super-clipboard`. To limit how long secrets sit unmasked in history.json, set "Delete sensitive entries after (minutes)": unpinned entries in the Sensitive tab are then deleted that many minutes after they were copied (checked every minute). If you do not want the history on disk, turn off "Keep the history after logging out"; Super Clipboard then writes no history.json. Copied images still sit in the images folder while running and are deleted at the next start.
 
 ## Commands
 

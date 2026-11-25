@@ -82,6 +82,8 @@ The gear button in the panel opens a settings window. Everything is stored in
 - `paste_formatted` - paste with formatting by default (default false)
 - `expire_days` - delete unpinned entries older than this many days; 0 = never
   (default 30)
+- `sensitive_clear_minutes` - delete unpinned sensitive entries older than this many
+  minutes, independent of `expire_days`; 0 = never (default 0)
 - `check_updates` - look for new releases on GitHub at startup and every 12 hours
   (default true)
 

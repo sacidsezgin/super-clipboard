@@ -72,6 +72,7 @@ DEFAULT_CONFIG = {
     "position": "auto",                # "auto", "pointer" or "center"
     "remember_position": True,         # reopen where the panel was dragged to (per monitor)
     "expire_days": 30,                 # delete unpinned entries older than this; 0 = never
+    "sensitive_clear_minutes": 0,      # delete unpinned sensitive entries older than this; 0 = never
     "paste_formatted": False,          # False: plain text by default, extra button pastes formatted
     "hotkey": "<Super>v",              # GTK accelerator that opens the panel
     "check_updates": True,             # look for new releases on GitHub
@@ -118,6 +119,7 @@ STRINGS = {
         "set_max_items": "Entries kept in the history",
         "set_expire": "Delete entries after (days)",
         "set_expire_note": "0 = never delete. Pinned entries always stay.",
+        "set_sensitive_clear": "Delete sensitive entries after (minutes)",
         "set_remember": "Remember the panel position per monitor",
         "set_reset_pos": "Forget saved positions",
         "set_paste": "Paste right away when picking an entry",
@@ -181,6 +183,7 @@ STRINGS = {
         "set_max_items": "Einträge im Verlauf",
         "set_expire": "Einträge löschen nach (Tagen)",
         "set_expire_note": "0 = nie löschen. Angeheftete Einträge bleiben immer.",
+        "set_sensitive_clear": "Sensible Einträge löschen nach (Minuten)",
         "set_remember": "Fensterposition pro Monitor merken",
         "set_reset_pos": "Gemerkte Positionen vergessen",
         "set_paste": "Beim Auswählen sofort einfügen",
@@ -293,6 +296,7 @@ def load_config():
         cfg["language"] = "auto"
     cfg["max_items"] = max(1, min(int(cfg["max_items"]), 500))
     cfg["expire_days"] = max(0, min(int(cfg["expire_days"]), 3650))
+    cfg["sensitive_clear_minutes"] = max(0, min(int(cfg["sensitive_clear_minutes"]), 10080))
     return cfg
 
 
@@ -917,12 +921,16 @@ class Store:
         self._changed()
 
     def expire(self):
-        """Drop unpinned entries older than cfg["expire_days"] (0 = keep forever)."""
+        """Drop unpinned entries older than cfg["expire_days"] and unpinned sensitive entries
+        older than cfg["sensitive_clear_minutes"] (0 = keep forever, each on its own)."""
+        now = time.time()
         days = self.cfg["expire_days"]
-        if days <= 0:
-            return
-        limit = time.time() - days * 86400
-        old = [i for i in self.items if not i.pinned and 0 < i.ts < limit]
+        minutes = self.cfg["sensitive_clear_minutes"]
+        day_limit = now - days * 86400 if days > 0 else None
+        secret_limit = now - minutes * 60 if minutes > 0 else None
+        old = [i for i in self.items if not i.pinned and i.ts > 0 and (
+            (day_limit is not None and i.ts < day_limit)
+            or (secret_limit is not None and i.category == "sensitive" and i.ts < secret_limit))]
         for item in old:
             self.items.remove(item)
             self._unlink(item)
@@ -2482,6 +2490,9 @@ class SettingsWindow(Gtk.Window):
         self.expire_days = Gtk.SpinButton.new_with_range(0, 3650, 1)
         self.expire_days.set_value(cfg["expire_days"])
         self._add(grid, "set_expire", self.expire_days)
+        self.sensitive_clear = Gtk.SpinButton.new_with_range(0, 10080, 1)
+        self.sensitive_clear.set_value(cfg["sensitive_clear_minutes"])
+        self._add(grid, "set_sensitive_clear", self.sensitive_clear)
         note = Gtk.Label(label=_("set_expire_note"), xalign=0)
         note.get_style_context().add_class("dim-label")
         grid.attach(note, 0, self._line, 2, 1)
@@ -2688,9 +2699,11 @@ class SettingsWindow(Gtk.Window):
     def _on_save(self, *_args):
         self.max_items.update()
         self.expire_days.update()
+        self.sensitive_clear.update()
         cfg = self.app.cfg
         cfg["max_items"] = self.max_items.get_value_as_int()
         cfg["expire_days"] = self.expire_days.get_value_as_int()
+        cfg["sensitive_clear_minutes"] = self.sensitive_clear.get_value_as_int()
         cfg["remember_position"] = self.remember.get_active()
         cfg["paste_on_select"] = self.paste.get_active()
         cfg["paste_formatted"] = self.formatted.get_active()
@@ -2788,7 +2801,7 @@ class SuperClipboard(Gtk.Application):
         self.state = load_state()
         self.store = Store(self.cfg, self._on_store_changed)
         self.store.expire()
-        GLib.timeout_add_seconds(3600, self._expire_tick)
+        GLib.timeout_add_seconds(60, self._expire_tick)
         self.keyboard.open()
         # A package upgrade stops this process with SIGTERM: shut down cleanly (saves the history).
         GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, self._on_sigterm)
