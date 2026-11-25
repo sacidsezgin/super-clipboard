@@ -100,7 +100,8 @@ STRINGS = {
         "unpin": "Unpin",
         "delete": "Delete",
         "hint": "Enter: paste  ·  Space: preview  ·  Ctrl+1–9  ·  Del: remove",
-        "hint_preview": "Ctrl+Enter: paste  ·  Ctrl+S: save  ·  Esc: back",
+        "hint_preview": "Ctrl+Z: undo  ·  Ctrl+Shift+Z: redo",
+        "key_back": "Esc", "key_save": "Ctrl+S", "key_paste": "Ctrl+Enter",
         "fmt_with": "Paste with formatting", "fmt_without": "Paste without formatting",
         "cat_rich": "formatted",
         "preview_note": "Preview – edits are saved to the entry",
@@ -170,7 +171,8 @@ STRINGS = {
         "unpin": "Lösen",
         "delete": "Löschen",
         "hint": "Enter: einfügen  ·  Leertaste: Vorschau  ·  Strg+1–9  ·  Entf: löschen",
-        "hint_preview": "Strg+Enter: einfügen  ·  Strg+S: speichern  ·  Esc: zurück",
+        "hint_preview": "Strg+Z: rückgängig  ·  Strg+Umschalt+Z: wiederholen",
+        "key_back": "Esc", "key_save": "Strg+S", "key_paste": "Strg+Enter",
         "fmt_with": "Mit Formatierung einfügen", "fmt_without": "Ohne Formatierung einfügen",
         "cat_rich": "formatiert",
         "preview_note": "Vorschau – Änderungen werden im Eintrag gespeichert",
@@ -2051,6 +2053,7 @@ class Panel(Gtk.Window):
         back.connect("clicked", lambda *_a: self.close_preview())
         self.reveal_button = Gtk.ToggleButton(label=_("reveal"))
         self.reveal_button.set_can_focus(False)
+        self.reveal_button.set_valign(Gtk.Align.START)      # level with the other buttons, not with their key labels
         self.reveal_button.set_no_show_all(True)
         self.reveal_button.connect("toggled", self._on_reveal_toggled)
         paste = Gtk.Button(label=_("paste_btn"))
@@ -2059,14 +2062,26 @@ class Panel(Gtk.Window):
         paste.connect("clicked", lambda *_a: self._paste_preview_now())
         self.save_button = Gtk.Button(label=_("save_btn"))
         self.save_button.set_can_focus(False)
-        self.save_button.set_no_show_all(True)
         self.save_button.connect("clicked", lambda *_a: self._save_preview())
-        buttons.pack_start(back, False, False, 0)
+        self.save_column = self._with_key(self.save_button, _("key_save"))
+        self.save_column.set_no_show_all(True)              # only shown for text that can be saved
+        buttons.pack_start(self._with_key(back, _("key_back")), False, False, 0)
         buttons.pack_start(self.reveal_button, False, False, 0)
-        buttons.pack_end(paste, False, False, 0)
-        buttons.pack_end(self.save_button, False, False, 0)
+        buttons.pack_end(self._with_key(paste, _("key_paste")), False, False, 0)
+        buttons.pack_end(self.save_column, False, False, 0)
         page.pack_start(buttons, False, False, 0)
         return page
+
+    @staticmethod
+    def _with_key(button, key):
+        """The button with its keyboard shortcut written underneath."""
+        column = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        label = Gtk.Label(label=key)
+        label.get_style_context().add_class("super-clipboard-hint")
+        column.pack_start(button, False, False, 0)
+        column.pack_start(label, False, False, 0)
+        column.show_all()
+        return column
 
     def _preview_text(self, item):
         """(text to show, may it be edited)"""
@@ -2109,7 +2124,7 @@ class Panel(Gtk.Window):
                 content = Gtk.Label(label=_("image"))
             self.preview_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
             self.reveal_button.hide()
-            self.save_button.hide()
+            self.save_column.hide()
         else:
             view = Gtk.TextView()
             view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
@@ -2145,7 +2160,7 @@ class Panel(Gtk.Window):
         self.preview_view.set_editable(editable)
         self.preview_view.set_cursor_visible(editable)
         self.save_button.set_sensitive(editable)
-        self.save_button.show()
+        self.save_column.show()
 
     def _on_reveal_toggled(self, button):
         if self.preview_item is None or self.preview_view is None:
