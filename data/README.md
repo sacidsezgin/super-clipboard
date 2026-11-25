@@ -33,6 +33,7 @@ XWayland can be told apart, native Wayland programs cannot).
 Space opens the selected entry in the panel. Text can be changed there;
 changes are saved into the entry itself (pinned entries stay pinned) with the
 Save button or Ctrl+S, and also on Esc, Back, paste or when the panel closes.
+Ctrl+Z undoes a change, Ctrl+Shift+Z or Ctrl+Y redoes it.
 Ctrl+Enter (or the Paste button) saves and pastes it. Esc goes back.
 Sensitive entries are shown masked, "Show" reveals and unlocks them.
 

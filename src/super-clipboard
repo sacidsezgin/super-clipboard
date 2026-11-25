@@ -1710,6 +1710,124 @@ CSS = b"""
 """
 
 
+class TextUndo:
+    """Undo and redo for a Gtk.TextBuffer, which has none of its own.
+
+    Every change is recorded as ("ins" | "del", offset, text). The changes of one user action
+    (typing over a selection is a delete and an insert) form one step, and typed letters or
+    repeated Backspace/Delete merge into one step as long as they are adjacent."""
+
+    MAX_STEPS = 1000
+    MAX_MERGED = 80           # a merged step does not grow past this many characters
+
+    def __init__(self, view):
+        self.view = view
+        self.buffer = view.get_buffer()
+        self.undo, self.redo = [], []
+        self.group = []
+        self.depth = 0
+        self.busy = False     # while the stack itself changes the text
+        self.sealed = False   # right after an undo/redo, a new change starts a step of its own
+        self.buffer.connect("begin-user-action", self._on_begin)
+        self.buffer.connect("end-user-action", self._on_end)
+        self.buffer.connect("insert-text", self._on_insert)
+        self.buffer.connect("delete-range", self._on_delete)
+
+    def load(self, text):
+        """Replace the whole text; this is not an edit and cannot be undone."""
+        self.busy = True
+        self.buffer.set_text(text)
+        self.busy = False
+        self.undo, self.redo, self.group, self.depth = [], [], [], 0
+        self.sealed = False
+
+    def _on_begin(self, _buffer):
+        if not self.busy:
+            self.depth += 1
+
+    def _on_end(self, _buffer):
+        if self.busy:
+            return
+        self.depth = max(0, self.depth - 1)
+        if self.depth == 0 and self.group:
+            self._push(self.group)
+            self.group = []
+
+    def _record(self, op):
+        if self.busy:
+            return
+        self.group.append(op)
+        if self.depth == 0:   # a change outside a user action is a step of its own
+            self._push(self.group)
+            self.group = []
+
+    def _on_insert(self, _buffer, location, text, _length):
+        self._record(("ins", location.get_offset(), text))
+
+    def _on_delete(self, buffer, start, end):
+        self._record(("del", start.get_offset(), buffer.get_text(start, end, True)))
+
+    def _push(self, group):
+        self.redo = []
+        merge, self.sealed = self.undo and not self.sealed, False
+        if merge and self._merge(self.undo[-1], group):
+            return
+        self.undo.append(group)
+        del self.undo[:-self.MAX_STEPS]
+
+    def _merge(self, last, group):
+        """Add a typed letter or a single Backspace/Delete to the step before it."""
+        if len(last) != 1 or len(group) != 1:
+            return False
+        (kind, offset, text), (new_kind, new_offset, new_text) = last[0], group[0]
+        if kind != new_kind or len(new_text) != 1 or len(text) >= self.MAX_MERGED:
+            return False
+        if kind == "ins":
+            # letters and spaces/newlines are separate steps, so one Ctrl+Z undoes a word
+            if new_offset == offset + len(text) and new_text.isspace() == text[-1].isspace() \
+                    and new_text != "\n" and text[-1] != "\n":
+                last[0] = (kind, offset, text + new_text)
+                return True
+        elif new_offset == offset - 1:        # Backspace
+            last[0] = (kind, new_offset, new_text + text)
+            return True
+        elif new_offset == offset:            # Delete
+            last[0] = (kind, offset, text + new_text)
+            return True
+        return False
+
+    def _apply(self, ops, forward):
+        """Run the changes of one step (backwards when undoing) and put the cursor behind them."""
+        buffer = self.buffer
+        self.busy = True
+        try:
+            cursor = 0
+            for kind, offset, text in (ops if forward else reversed(ops)):
+                inserting = (kind == "ins") == forward
+                if inserting:
+                    buffer.insert(buffer.get_iter_at_offset(offset), text)
+                    cursor = offset + len(text)
+                else:
+                    buffer.delete(buffer.get_iter_at_offset(offset),
+                                  buffer.get_iter_at_offset(offset + len(text)))
+                    cursor = offset
+            buffer.place_cursor(buffer.get_iter_at_offset(cursor))
+        finally:
+            self.busy = False
+        self.view.scroll_to_mark(buffer.get_insert(), 0.1, False, 0, 0)
+
+    def step(self, redo=False):
+        """Undo (or redo) one step. Returns False if there is nothing to do."""
+        source, target = (self.redo, self.undo) if redo else (self.undo, self.redo)
+        if not source:
+            return False
+        group = source.pop()
+        self._apply(group, forward=redo)
+        target.append(group)
+        self.sealed = True
+        return True
+
+
 class Panel(Gtk.Window):
     WIDTH = 384
     HEIGHT = 520
@@ -1727,6 +1845,7 @@ class Panel(Gtk.Window):
         self.tab_buttons = {}
         self.preview_item = None
         self.preview_view = None
+        self.preview_undo = None
         self.revealed = False
         self.dragged = False
         self._state_source = 0
@@ -1966,6 +2085,7 @@ class Panel(Gtk.Window):
         self.preview_item = item
         self.revealed = False
         self.preview_view = None
+        self.preview_undo = None
         child = self.preview_scroll.get_child()
         if child is not None:
             self.preview_scroll.remove(child)
@@ -1999,6 +2119,7 @@ class Panel(Gtk.Window):
             if item.category == "code":
                 view.set_monospace(True)
             self.preview_view = view
+            self.preview_undo = TextUndo(view)
             self._fill_preview(item)
             content = view
             self.preview_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
@@ -2020,7 +2141,7 @@ class Panel(Gtk.Window):
 
     def _fill_preview(self, item):
         shown, editable = self._preview_text(item)
-        self.preview_view.get_buffer().set_text(shown)
+        self.preview_undo.load(shown)
         self.preview_view.set_editable(editable)
         self.preview_view.set_cursor_visible(editable)
         self.save_button.set_sensitive(editable)
@@ -2050,6 +2171,7 @@ class Panel(Gtk.Window):
         self._commit_preview_edit()
         self.preview_item = None
         self.preview_view = None
+        self.preview_undo = None
         self.stack.set_visible_child_name("list")
         self.gear.set_sensitive(True)
         self.rebuild()
@@ -2070,7 +2192,7 @@ class Panel(Gtk.Window):
             return
         self.app.paste_item(self._commit_preview_edit())
 
-    def _on_preview_key(self, key, ctrl):
+    def _on_preview_key(self, key, ctrl, shift=False):
         if key == Gdk.KEY_Escape:
             self.close_preview()
             return True
@@ -2079,6 +2201,10 @@ class Panel(Gtk.Window):
             return True
         if ctrl and key in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_ISO_Enter):
             self._after_ctrl_up(self._paste_preview_now)
+            return True
+        if ctrl and key in (Gdk.KEY_z, Gdk.KEY_Z, Gdk.KEY_y, Gdk.KEY_Y):
+            if self.preview_undo is not None and self.preview_view.get_editable():
+                self.preview_undo.step(redo=key in (Gdk.KEY_y, Gdk.KEY_Y) or shift)
             return True
         return False          # everything else is typing into the text
 
@@ -2310,7 +2436,7 @@ class Panel(Gtk.Window):
         key = event.keyval
         ctrl = bool(event.state & Gdk.ModifierType.CONTROL_MASK)
         if self.preview_item is not None:
-            return self._on_preview_key(key, ctrl)
+            return self._on_preview_key(key, ctrl, bool(event.state & Gdk.ModifierType.SHIFT_MASK))
         row = self.listbox.get_selected_row()
         if key == Gdk.KEY_Escape:
             if self.search.get_text():
@@ -2511,6 +2637,7 @@ class Panel(Gtk.Window):
         self.pending_action = None
         self.preview_item = None
         self.preview_view = None
+        self.preview_undo = None
         self.stack.set_visible_child_name("list")
         self.gear.set_sensitive(True)
         self.app.store.expire()

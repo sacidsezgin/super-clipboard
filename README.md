@@ -110,12 +110,13 @@ The space bar opens the selected entry in full size inside the window, and text 
 - **Text:** shown in full. Code appears in a monospaced font.
 - **Image:** scaled down to the window width, larger than in the list.
 - **Saving:** Changes are saved into the entry itself with the "Save" button or Ctrl+S (back to the list), and also on Esc, on "← Back", on paste and when the panel closes. The entry keeps its place in the list and stays pinned if it was pinned. Because the text no longer matches, its formatting is dropped. If the changed text equals another entry, the two are merged.
+- **Undo:** Ctrl+Z undoes the last change in the text (typed words, a deletion or a paste count as one step each), Ctrl+Shift+Z or Ctrl+Y redoes it. The history is kept only while the preview is open, and "Show"/"Hide" on a sensitive entry starts it anew.
 - **Paste:** Ctrl+Enter or the "Paste" button. The entry is saved and pasted, as plain text if it was changed. Without changes the entry is pasted as usual, that is, with formatting if that is the default.
 - **Back:** Esc or the "← Back" button.
 
 **Sensitive entries** stay masked and read-only in the preview until you press "Show". "Hide" restores the masking.
 
-**Limits.** For texts over 200,000 characters the preview shows only the beginning and does not allow editing; the original is pasted. The editor has no built-in undo.
+**Limits.** For texts over 200,000 characters the preview shows only the beginning and does not allow editing; the original is pasted.
 
 ## Formatting when pasting
 
@@ -243,7 +244,7 @@ Super Clipboard is a small tool, and some things it cannot do, by design or for 
 - **Pasting without /dev/uinput.** On Wayland Super Clipboard then cannot send a key. The entry is on the clipboard, and the footer of the window says that you must paste yourself with Ctrl+V. On X11, `xdotool` helps.
 - **Window on Wayland.** It appears centered on the monitor with the mouse pointer; placing it at the pointer is only available on X11. Whether the window gets keyboard focus immediately when opening is decided by the desktop.
 - **Monitors.** If you change the arrangement of your screens, Super Clipboard starts centered again for the monitor changed that way; the old position is then no longer assigned.
-- **Editor.** The preview has no undo; texts over 200,000 characters cannot be edited there.
+- **Editor.** Texts over 200,000 characters cannot be edited in the preview.
 - **Software center.** If you open the .deb file in the software app, it shows the package name `super-clipboard` (Debian does not allow capital letters). After installation the application is called "Super Clipboard".
 
 ## Troubleshooting
