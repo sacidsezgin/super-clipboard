@@ -1,0 +1,7 @@
+# Claude Code files are development tooling, not part of the product. export-ignore
+# keeps them out of `git archive` and of the source archives GitHub attaches to every
+# release (the .deb is built from an explicit file list in build.sh and never has them).
+/.claude                  export-ignore
+/CLAUDE.md                export-ignore
+/tools/claude-guard.py    export-ignore
+/.gitattributes           export-ignore

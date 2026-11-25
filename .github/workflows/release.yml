@@ -49,6 +49,19 @@ jobs:
           dpkg-deb --info "build/$deb"
           (cd build && sha256sum "$deb" > "$deb.sha256")
 
+      - name: Check that no Claude files ship
+        if: steps.plan.outputs.release == 'true'
+        env:
+          RELEASE_VERSION: ${{ steps.plan.outputs.version }}
+        run: |
+          # The .deb comes from a fixed file list; the source archive follows .gitattributes.
+          if dpkg-deb -c "build/super-clipboard_${RELEASE_VERSION}_all.deb" | grep -i claude; then
+            echo "::error::Claude files are in the .deb"; exit 1
+          fi
+          if git archive HEAD | tar t | grep -i claude; then
+            echo "::error::Claude files are in the source archive, check .gitattributes"; exit 1
+          fi
+
       - name: Commit the new version
         id: push
         if: steps.plan.outputs.release == 'true'

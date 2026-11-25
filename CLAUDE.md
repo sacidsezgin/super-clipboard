@@ -17,6 +17,8 @@ Diese Stellen gehören dem Release-Skript. Nicht ändern, auch nicht „zur Sich
 
 Ausnahme: Der Nutzer verlangt ausdrücklich eine bestimmte Version (z. B. 2.0.0). Dann **nur** die `VERSION`-Zeile setzen. Setzt man auch den Changelog-Eintrag von Hand, überspringt das Skript AppStream und README.
 
+**Durchgesetzt wird das von einem Hook**, nicht nur von diesem Text: `.claude/settings.json` ruft vor jedem Edit, Write und Bash-Befehl `tools/claude-guard.py` auf. Er blockiert Änderungen an den oben genannten Stellen, `tools/release.py` ohne `--dry-run` und `git tag` mit `vX.Y.Z`. Für die Ausnahme legt der **Nutzer** die leere Datei `.claude/allow-manual-version` an (sie hebt nur die Sperre der `VERSION`-Zeile auf; Claude darf sie nicht selbst anlegen) und löscht sie danach wieder. Blockiert der Hook, nicht umgehen (auch nicht per `sed` oder Skript), sondern die Commit-Nachricht anpassen oder den Nutzer fragen.
+
 ### Commit-Nachricht
 
 Format: `type(scope)!: text`. Das Stage-Skill schreibt sie als eine Zeile nach `.git/CLAUDE_COMMIT_MSG`; sie muss dieses Format haben.
